@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAR Worst 선정</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<style>
+:root{
+  --bg:#f6f5f1; --panel:#ffffff; --ink:#1d1d1b; --muted:#6b6a64; --line:#d9d6cc;
+  --head:#d8cfb0; --head-ink:#1d1d1b; --accent:#2f5d8a; --accent-ink:#ffffff;
+  --warn:#a34b1f; --drop:#eeebe2; --mark:#e0a800;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1a1a18; --panel:#24241f; --ink:#ecebe6; --muted:#a3a29a; --line:#3c3b35;
+    --head:#5a523a; --head-ink:#f3efe2; --accent:#6fa3d6; --accent-ink:#10161c;
+    --warn:#f0a07a; --drop:#2c2c27; --mark:#ffcf40;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1a1a18; --panel:#24241f; --ink:#ecebe6; --muted:#a3a29a; --line:#3c3b35;
+  --head:#5a523a; --head-ink:#f3efe2; --accent:#6fa3d6; --accent-ink:#10161c;
+  --warn:#f0a07a; --drop:#2c2c27; --mark:#ffcf40;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif}
+main{max-width:1180px;margin:0 auto;padding:28px 16px 60px}
+h1{font-size:22px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 22px}
+h2{font-size:15px;margin:28px 0 10px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+#drop{border:2px dashed var(--line);background:var(--drop);border-radius:10px;padding:28px 16px;text-align:center;cursor:pointer;transition:border-color .15s}
+#drop.over{border-color:var(--accent)}
+#drop b{display:block;font-size:15px;margin-bottom:4px}
+#drop span{color:var(--muted)}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px}
+.bar .grow{flex:1}
+button,select{font:inherit;border-radius:7px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:7px 12px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button:disabled{opacity:.45;cursor:default}
+.files{margin:12px 0 0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:6px}
+.files li{border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--muted)}
+.stats{display:flex;gap:10px;flex-wrap:wrap}
+.stat{flex:1;min-width:120px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+.stat .n{font-size:22px;font-weight:700}
+.stat .l{color:var(--muted);font-size:12px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+table{border-collapse:collapse;width:100%;font-family:Arial,"Malgun Gothic",sans-serif;font-size:13px}
+th,td{border:1px solid var(--line);padding:4px 8px;text-align:center;white-space:nowrap}
+#summary th{background:var(--head);color:var(--head-ink);font-weight:600}
+td.no{font-weight:700}
+td.left{text-align:left}
+/* 결과 미리보기: 사진 양식 그대로 (흰 바탕, 검은 선, 베이지 헤더) */
+.sheet table{background:#fff;color:#111;font-size:13px}
+.sheet th,.sheet td{border:1px solid #333;padding:2px 8px;font-weight:400}
+.sheet th{background:#d8cfb0;color:#111;line-height:1.25}
+.sheet td.num{font-weight:700;outline:2px solid var(--mark);outline-offset:-2px}
+.warn{color:var(--warn);font-size:13px;margin:6px 0 0;padding-left:18px}
+.empty{color:var(--muted);text-align:center;padding:26px}
+.rule{font-size:13px;color:var(--muted);margin:10px 0 0}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<main>
+  <h1>SAR System Check · Serial별 Worst 선정</h1>
+  <p class="sub">시스템 체크 엑셀을 넣으면 정해진 양식으로 모아서 정리하고, Serial 번호가 같은 측정 건끼리 비교해 worst 의 Plot No. 칸에 번호를 붙입니다. 파일은 브라우저 안에서만 처리돼요.</p>
+
+  <section class="panel">
+    <div id="drop">
+      <b>엑셀 파일을 여기로 끌어다 놓기</b>
+      <span>또는 클릭해서 선택 (.xlsx / .xlsm, 여러 개 가능)</span>
+      <input id="pick" type="file" accept=".xlsx,.xlsm" multiple hidden>
+    </div>
+    <ul class="files" id="fileList"></ul>
+    <div class="bar">
+      <label>번호 순서
+        <select id="order">
+          <option value="table">표 순서 (날짜순, 위→아래)</option>
+          <option value="freq">주파수 오름차순</option>
+        </select>
+      </label>
+      <span class="grow"></span>
+      <button id="clear" disabled>초기화</button>
+      <button id="download" class="primary" disabled>결과 엑셀 다운로드</button>
+    </div>
+    <p class="rule">불러온 <b>모든 파일의 데이터를 합쳐서</b> Serial 번호가 같은 것끼리 하나의 worst를 고릅니다 (대소문자·공백 무시).<br>
+      Worst 기준: |1g Delta| 최대 → 1g 동률이면 |10g Delta| 최대 → 둘 다 동률이면 먼저 측정된 데이터 (소수 둘째 자리 기준, 부호 무시).<br>
+      결과 양식: Date Tested · Type · Serial # · T.S. Liquid · Zoom Scan · Normalize · Target · Delta · Plot No. (측정 건마다 1g·10g 줄, 원본에 8g·APD 가 있으면 그 줄도 같은 양식으로 추가, 날짜는 yyyy-mm-dd)</p>
+    <ul class="warn" id="warnings"></ul>
+  </section>
+
+  <div id="results" class="hidden">
+    <h2>요약</h2>
+    <div class="stats" id="stats"></div>
+
+    <h2>Serial별 Worst</h2>
+    <div class="scroll"><table id="summary"></table></div>
+
+    <h2>결과 미리보기</h2>
+    <div class="scroll sheet"><table id="main"></table></div>
+  </div>
+  <div id="emptyMsg" class="panel empty" style="margin-top:20px">아직 불러온 데이터가 없어요.</div>
+</main>
+
+<script>
+"use strict";
+const state = { records: [], files: [], warnings: [], seen: new Set() };
+const $ = id => document.getElementById(id);
+
+/* ============================================================ 값 정리 */
+const text = v => v == null ? "" : (v instanceof Date ? v.toISOString().slice(0, 10) : String(v).trim());
+const low = v => text(v).toLowerCase();
+const label = v => low(v).replace(/\s/g, "");
+function num(v){
+  if (typeof v === "number") return v;
+  if (v == null || v instanceof Date) return null;
+  const s = text(v).replace("%", "");
+  if (!/^[+-]?\d*\.?\d+(e[+-]?\d+)?$/i.test(s)) return null;
+  return parseFloat(s);
+}
+function cellVal(cell){
+  let v = cell.value;
+  if (v == null) return null;
+  if (v instanceof Date) return v;
+  if (typeof v === "object"){
+    if ("result" in v || "formula" in v || "sharedFormula" in v) return v.result ?? null;
+    if (v.richText) return v.richText.map(t => t.text).join("");
+    if ("text" in v) return v.text;
+    if (v.error) return null;
+  }
+  return v;
+}
+function parseDate(v){
+  if (v instanceof Date) return {y:v.getUTCFullYear(), m:v.getUTCMonth()+1, d:v.getUTCDate()};
+  if (typeof v === "number" && v > 20000 && v < 80000){
+    const d = new Date(Date.UTC(1899, 11, 30) + v * 86400000);
+    return {y:d.getUTCFullYear(), m:d.getUTCMonth()+1, d:d.getUTCDate()};
+  }
+  const s = text(v);
+  let m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/);
+  if (m) return {y:+m[3], m:+m[1], d:+m[2]};
+  m = s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/);
+  if (m) return {y:+m[1], m:+m[2], d:+m[3]};
+  return null;
+}
+const pad2 = n => String(n).padStart(2, "0");
+const fmtDate = b => b.date ? `${b.date.y}-${pad2(b.date.m)}-${pad2(b.date.d)}` : text(b.dateRaw);  // yyyy-mm-dd
+const dateKey = b => b.date ? b.date.y*10000 + b.date.m*100 + b.date.d : 99999999;
+const r2 = x => Math.round(Math.abs(x) * 100 + 1e-9) / 100;
+const fx = (x, d) => x == null ? "" : x.toFixed(d);
+// 파일마다 표기가 조금 달라도(D835V2 / D835 V2 / d835-v2) 같은 값으로 봄
+const bandKey = t => text(t).toUpperCase().replace(/[\s\-_]/g, "");
+// Serial 비교용: 대소문자·공백 무시 (4d174 = 4D174), 숫자로 저장된 1205.0 → 1205
+const serialKey = s => text(s).replace(/\.0+$/, "").toUpperCase().replace(/\s/g, "");
+function freqOf(type){
+  const s = type.toUpperCase();
+  let m = s.match(/(\d+(?:\.\d+)?)\s*GHZ/);
+  if (m) return parseFloat(m[1]) * 1000;
+  m = s.match(/(\d+(?:\.\d+)?)/);
+  return m ? parseFloat(m[1]) : Infinity;
+}
+
+/* ============================================================ 읽기
+   측정 건(block) = '1g' 행부터 라벨(8g/10g/APD…)이 이어지는 행까지 → 2줄·4줄 양식 모두 지원.
+   결과에는 1g·10g 행만 사용.                                                         */
+function readSheet(ws, file){
+  const source = `${file}/${ws.name}`;
+  const maxR = ws.rowCount, maxC = ws.columnCount;
+  const get = (r, c) => { if (!c) return null; const cell = ws.getCell(r, c); return cellVal(cell.isMerged ? cell.master : cell); };
+
+  // 1) 라벨 열과 첫 측정 행
+  let first = null, labelCol = null;
+  for (let r = 1; r <= maxR && !first; r++)
+    for (let c = 1; c <= maxC; c++)
+      if (label(get(r, c)) === "1g"){ first = r; labelCol = c; break; }
+  if (!first) return [];
+  const lab = r => label(get(r, labelCol));
+
+  // 2) block 나누기
+  const spans = [];
+  for (let r = first; r <= maxR; ){
+    if (lab(r) !== "1g"){ r++; continue; }
+    let end = r;
+    while (end + 1 <= maxR && lab(end + 1) && lab(end + 1) !== "1g") end++;
+    spans.push([r, end]);
+    r = end + 1;
+  }
+  const row10 = s => { for (let r = s[0]; r <= s[1]; r++) if (lab(r) === "10g") return r; return null; };
+
+  // 3) 헤더 (첫 측정 행 바로 위 최대 8줄)
+  const top = Math.max(1, first - 8);
+  const head = c => { const t = []; for (let r = top; r < first; r++) t.push(low(get(r, c))); return t.join(" "); };
+
+  const col = {}, deltaCand = [];
+  for (let c = 1; c <= maxC; c++){
+    if (c === labelCol) continue;
+    const h = head(c);
+    if (!col.date && h.includes("date")) col.date = c;
+    if (!col.type && /\btype\b/.test(h)) col.type = c;
+    if (!col.serial && h.includes("serial")) col.serial = c;
+    if (!col.zoom && h.includes("zoom") && !/ratio|est\./.test(h)) col.zoom = c;
+    if (!col.norm && h.includes("normaliz")) col.norm = c;
+    if (!col.target && h.includes("target")) col.target = c;
+    if (!col.liquid && (h.includes("liquid") || /\beli\b/.test(h))) col.liquid = c;
+    if (h.includes("delta")) deltaCand.push(c);
+  }
+  const r1 = spans.map(s => s[0]);
+  if (!col.date) for (let c = 1; c <= maxC && !col.date; c++) if (r1.every(r => parseDate(get(r, c)))) col.date = c;
+  if (!col.type) for (let c = 1; c <= maxC && !col.type; c++) if (r1.every(r => /^D\s*\d[\w.\s-]*$/i.test(text(get(r, c))))) col.type = c;
+  if (!col.liquid && labelCol > 1 && r1.every(r => /^[a-z]/i.test(text(get(r, labelCol - 1))))) col.liquid = labelCol - 1;
+
+  // 4) Delta 열: (A-B)/B*100 계산이 맞는 열 (헤더 후보 우선). 맞는 A,B 는 Normalize·Target 으로도 사용
+  const checkRows = spans.flatMap(s => [s[0], row10(s)]).filter(Boolean);
+  function fitPair(r, c){
+    const v = num(get(r, c)); if (v == null) return null;
+    const nums = [];
+    for (let k = 1; k <= maxC; k++) if (k !== c && k !== labelCol){ const x = num(get(r, k)); if (x != null) nums.push([k, x]); }
+    for (const [ka, a] of nums) for (const [kb, b] of nums)
+      if (ka !== kb && b !== 0 && Math.abs((a - b) / b * 100 - v) <= 0.015 + Math.abs(v) * 0.002) return ka + "," + kb;
+    return null;
+  }
+  function score(c){
+    const pairs = {}; let ok = 0;
+    for (const r of checkRows){ const p = fitPair(r, c); if (p){ ok++; pairs[p] = (pairs[p] || 0) + 1; } }
+    const best = Object.entries(pairs).sort((a, b) => b[1] - a[1])[0];
+    return {c, ok, pair: best ? best[0].split(",").map(Number) : null};
+  }
+  let delta = deltaCand.map(score).sort((a, b) => b.ok - a.ok)[0];
+  if (!delta || delta.ok === 0){
+    const all = [];
+    for (let c = 1; c <= maxC; c++) if (c !== labelCol) all.push(score(c));
+    all.sort((a, b) => b.ok - a.ok);
+    if (all[0] && all[0].ok >= Math.ceil(checkRows.length / 2)) delta = all[0];
+  }
+  const missing = [];
+  if (!col.date) missing.push("날짜");
+  if (!col.type) missing.push("Type");
+  if (!delta || (!delta.ok && !deltaCand.length)) missing.push("Delta");
+  if (missing.length){ state.warnings.push(`${source}: ${missing.join(", ")} 열을 찾지 못해 건너뜀`); return []; }
+  col.delta = delta.c;
+  if (delta.pair){
+    if (!col.norm) col.norm = delta.pair[0];
+    if (!col.target) col.target = delta.pair[1];
+  }
+
+  const vals = r => {
+    const o = {zoom: num(get(r, col.zoom)), norm: num(get(r, col.norm)), target: num(get(r, col.target)),
+               delta: num(get(r, col.delta))};
+    if (o.delta == null && o.norm != null && o.target) o.delta = (o.norm - o.target) / o.target * 100;
+    return o;
+  };
+
+  const out = [];
+  for (const s of spans){
+    const r10 = row10(s);
+    if (!r10){ state.warnings.push(`${source} ${s[0]}행: 10g 행이 없어 건너뜀`); continue; }
+    const b = {
+      file, source, row: s[0], dateRaw: get(s[0], col.date), date: parseDate(get(s[0], col.date)),
+      type: text(get(s[0], col.type)), serial: text(get(s[0], col.serial)), liquid: text(get(s[0], col.liquid)),
+      g1: vals(s[0]), g10: vals(r10),
+      rows: [],   // 1g·8g·10g·APD… 원본 순서 그대로 (결과에 모두 표시)
+    };
+    for (let r = s[0]; r <= s[1]; r++) b.rows.push({lab: text(get(r, labelCol)), ...vals(r)});
+    if (!b.type){ state.warnings.push(`${source} ${s[0]}행: Type 이 비어 있어 건너뜀`); continue; }
+    if (!col.serial) { if (!out.length) state.warnings.push(`${source}: Serial 열을 찾지 못해 worst 판정에서 제외 (표에는 표시)`); }
+    else if (!b.serial) state.warnings.push(`${source} ${s[0]}행: Serial 이 비어 있어 worst 판정에서 제외 (표에는 표시)`);
+    if (b.g1.delta == null || b.g10.delta == null){ state.warnings.push(`${source} ${s[0]}행: Delta 값을 구할 수 없어 건너뜀`); continue; }
+    b.d1 = b.g1.delta; b.d10 = b.g10.delta;
+    b.sig = JSON.stringify([dateKey(b), bandKey(b.type), b.serial, b.rows]);
+    out.push(b);
+  }
+  return out;
+}
+
+async function addFiles(fileList){
+  for (const f of fileList){
+    if (!/\.(xlsx|xlsm)$/i.test(f.name) || f.name.startsWith("~$")){
+      state.warnings.push(`${f.name}: .xlsx/.xlsm 파일만 읽을 수 있어요 (.xls 는 엑셀에서 .xlsx 로 저장 후 사용)`); continue;
+    }
+    try{
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(await f.arrayBuffer());
+      let added = 0, dup = 0;
+      wb.eachSheet(ws => {
+        for (const b of readSheet(ws, f.name)){
+          if (state.seen.has(b.sig)){ dup++; continue; }
+          state.seen.add(b.sig); state.records.push(b); added++;
+        }
+      });
+      if (!added && !dup) state.warnings.push(`${f.name}: 시스템 체크 데이터를 찾지 못했어요 ('1g' 행과 날짜·Type·Delta 열 확인)`);
+      if (dup) state.warnings.push(`${f.name}: 이미 불러온 데이터와 같은 ${dup}건은 한 번만 반영했어요`);
+      state.files.push(`${f.name} (${added}건)`);
+    }catch(e){
+      state.warnings.push(`${f.name}: 파일을 열 수 없어요 (${e.message})`);
+    }
+  }
+  render();
+}
+
+/* ============================================================ worst 선정 */
+function analyze(){
+  const records = state.records.map((r, i) => Object.assign(r, {i}))
+    .slice().sort((a, b) => dateKey(a) - dateKey(b) || a.i - b.i);
+  // Serial 번호가 같은 것끼리 묶어서 worst 선정
+  const groups = new Map();
+  for (const r of records){
+    const k = serialKey(r.serial);
+    if (!k) continue;   // Serial 이 비어 있으면 판정 제외 (읽을 때 경고)
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(r);
+  }
+  const cmp = (a, b) => r2(b.d1) - r2(a.d1) || r2(b.d10) - r2(a.d10);
+  const worst = [];
+  for (const [serial, recs] of groups){
+    let best = recs[0];
+    for (const r of recs) if (cmp(r, best) < 0) best = r;   // 완전 동률이면 먼저 측정된 것 유지
+    const tied = recs.filter(r => r !== best && cmp(r, best) === 0);
+    const same1g = recs.filter(r => r !== best && r2(r.d1) === r2(best.d1));
+    const why = tied.length ? "1g·10g 완전 동률 → 먼저 측정된 데이터"
+              : same1g.length ? "1g 동률 → 10g 로 결정"
+              : recs.length === 1 ? "측정 1회" : "1g 최대";
+    worst.push({serial, rec: best, tied, count: recs.length, nFiles: new Set(recs.map(r => r.file)).size, why});
+  }
+  if ($("order").value === "freq")
+    worst.sort((a, b) => freqOf(a.rec.type) - freqOf(b.rec.type) || a.serial.localeCompare(b.serial));
+  else
+    worst.sort((a, b) => records.indexOf(a.rec) - records.indexOf(b.rec));
+  const no = new Map();
+  worst.forEach((w, k) => { w.no = k + 1; no.set(w.rec, w); });
+  return {records, worst, no};
+}
+
+/* ============================================================ 화면 */
+const esc = s => text(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function render(){
+  $("fileList").innerHTML = state.files.map(f => `<li>${esc(f)}</li>`).join("");
+  $("warnings").innerHTML = state.warnings.map(w => `<li>${esc(w)}</li>`).join("");
+  const has = state.records.length > 0;
+  $("results").classList.toggle("hidden", !has);
+  $("emptyMsg").classList.toggle("hidden", has);
+  $("download").disabled = !has;
+  $("clear").disabled = !has && !state.files.length && !state.warnings.length;
+  if (!has) return;
+
+  const {records, worst, no} = analyze();
+  $("stats").innerHTML = [
+    [state.files.length, "합쳐서 비교한 파일"], [records.length, "측정 건수"], [worst.length, "Serial 수"],
+    [worst.filter(w => w.why.startsWith("1g 동률")).length, "10g 로 결정된 Serial"],
+  ].map(([n, l]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
+
+  $("summary").innerHTML =
+    `<tr><th>Plot No.</th><th>Serial #</th><th>Type</th><th>Date Tested</th><th>1g Delta (%)</th><th>10g Delta (%)</th><th>측정 횟수</th><th>비교 파일 수</th><th>선정 근거</th><th>원본</th></tr>` +
+    worst.map(w => `<tr><td class="no">${w.no}</td><td>${esc(w.rec.serial)}</td><td>${esc(w.rec.type)}</td><td>${esc(fmtDate(w.rec))}</td>
+      <td>${fx(w.rec.d1, 2)}</td><td>${fx(w.rec.d10, 2)}</td><td>${w.count}</td><td>${w.nFiles}</td><td class="left">${esc(w.why)}</td>
+      <td class="left">${esc(w.rec.source)} (${w.rec.row}행)</td></tr>`).join("");
+
+  $("main").innerHTML =
+    `<tr><th rowspan="2">Date Tested</th><th colspan="2">System Dipole</th><th rowspan="2" colspan="2">T.S.<br>Liquid</th>
+     <th colspan="2">Measured Results</th><th rowspan="2">Target<br>(Ref. Value)</th><th rowspan="2">Delta<br>±10 %</th><th rowspan="2">Plot No.</th></tr>
+     <tr><th>Type</th><th>Serial #</th><th>Zoom Scan to<br>100 mW</th><th>Normalize<br>to 1 W</th></tr>` +
+    records.map(r => {
+      const w = no.get(r), n = r.rows.length;
+      const g = x => `<td>${esc(x.lab)}</td><td>${fx(x.zoom, 2)}</td><td>${fx(x.norm, 1)}</td><td>${fx(x.target, 2)}</td><td>${fx(x.delta, 2)}</td>`;
+      return r.rows.map((x, i) => i === 0
+        ? `<tr><td rowspan="${n}">${esc(fmtDate(r))}</td><td rowspan="${n}">${esc(r.type)}</td><td rowspan="${n}">${esc(r.serial)}</td>
+           <td rowspan="${n}">${esc(r.liquid)}</td>${g(x)}<td rowspan="${n}"${w ? ' class="num"' : ""}${w && w.tied.length ? ` title="1g·10g 완전 동률"` : ""}>${w ? w.no : ""}</td></tr>`
+        : `<tr>${g(x)}</tr>`).join("");
+    }).join("");
+}
+
+/* ============================================================ 엑셀 쓰기 (사진 양식) */
+const THIN = {style: "thin", color: {argb: "FF000000"}};
+const BOX = {top: THIN, left: THIN, bottom: THIN, right: THIN};
+const HEAD_FILL = {type: "pattern", pattern: "solid", fgColor: {argb: "FFD8CFB0"}};
+const FONT = {name: "Arial", size: 10}, BOLD = {name: "Arial", size: 10, bold: true};
+const ALIGN = {horizontal: "center", vertical: "middle", wrapText: true};
+
+function box(ws, rng, value, opt = {}){
+  const [a, b] = rng.split(":");
+  if (b) ws.mergeCells(rng);
+  const s = ws.getCell(a), e = ws.getCell(b || a);
+  for (let r = s.row; r <= e.row; r++) for (let c = s.col; c <= e.col; c++){
+    const cell = ws.getCell(r, c);
+    cell.border = BOX; cell.alignment = ALIGN; cell.font = opt.font || FONT;
+    if (opt.fill) cell.fill = opt.fill;
+    if (opt.fmt) cell.numFmt = opt.fmt;
+  }
+  ws.getCell(a).value = (value == null || value === "") ? null : value;
+}
+
+async function download(){
+  const {records, worst, no} = analyze();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("System Check", {views: [{state: "frozen", ySplit: 2}]});
+  [["A1:A2","Date Tested"],["B1:C1","System Dipole"],["B2","Type"],["C2","Serial #"],["D1:E2","T.S.\nLiquid"],
+   ["F1:G1","Measured Results"],["F2","Zoom Scan to\n100 mW"],["G2","Normalize\nto 1 W"],
+   ["H1:H2","Target\n(Ref. Value)"],["I1:I2","Delta\n±10 %"],["J1:J2","Plot No."]]
+    .forEach(([r, v]) => box(ws, r, v, {fill: HEAD_FILL}));
+  ws.getRow(1).height = 20; ws.getRow(2).height = 30;
+  [16,13,11,9,7,12,12,12,10,12].forEach((w, i) => ws.getColumn(i + 1).width = w);
+
+  const round2 = x => x == null ? null : Math.round(x * 100) / 100;
+  let r = 3;
+  for (const rec of records){
+    const w = no.get(rec), n = rec.rows.length;
+    const span = col => n > 1 ? `${col}${r}:${col}${r + n - 1}` : `${col}${r}`;
+    box(ws, span("A"), fmtDate(rec));
+    box(ws, span("B"), rec.type);
+    box(ws, span("C"), rec.serial);
+    box(ws, span("D"), rec.liquid);
+    rec.rows.forEach((g, i) => {   // 1g·8g·10g·APD… 행 모두 같은 양식으로
+      const rr = r + i;
+      box(ws, `E${rr}`, g.lab);
+      box(ws, `F${rr}`, g.zoom, {fmt: "0.00"});
+      box(ws, `G${rr}`, g.norm, {fmt: "0.0"});
+      box(ws, `H${rr}`, g.target, {fmt: "0.00"});
+      box(ws, `I${rr}`, round2(g.delta), {fmt: "0.00"});
+    });
+    box(ws, span("J"), w ? w.no : null, {font: w ? BOLD : FONT});
+    if (w && w.tied.length)
+      ws.getCell(`J${r}`).note = `1g·10g Delta 완전 동률: ${w.tied.map(fmtDate).join(", ")} 데이터와 같음 (먼저 측정된 데이터 선택)`;
+    r += n;
+  }
+
+  const ss = wb.addWorksheet("Worst Summary", {views: [{state: "frozen", ySplit: 1}]});
+  ["Plot No.","Serial #","Type","Date Tested","1g Delta (%)","10g Delta (%)","측정 횟수","비교 파일 수","선정 근거","원본"]
+    .forEach((h, i) => box(ss, ss.getCell(1, i + 1).address, h, {fill: HEAD_FILL, font: BOLD}));
+  worst.forEach((w, k) => {
+    [w.no, w.rec.serial, w.rec.type, fmtDate(w.rec), round2(w.rec.d1), round2(w.rec.d10),
+     w.count, w.nFiles, w.why, `${w.rec.source} (${w.rec.row}행)`]
+      .forEach((v, i) => box(ss, ss.getCell(k + 2, i + 1).address, v, {fmt: (i === 4 || i === 5) ? "0.00" : undefined}));
+  });
+  [9,10,12,13,12,13,10,11,30,40].forEach((w, i) => ss.getColumn(i + 1).width = w);
+
+  const buf = await wb.xlsx.writeBuffer();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([buf], {type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
+  a.download = "SystemCheck_Worst.xlsx";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/* ============================================================ 이벤트 */
+const drop = $("drop"), pick = $("pick");
+drop.addEventListener("click", () => pick.click());
+pick.addEventListener("change", () => { addFiles([...pick.files]); pick.value = ""; });
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", e => { e.preventDefault(); drop.classList.remove("over"); addFiles([...e.dataTransfer.files]); });
+$("order").addEventListener("change", render);
+$("download").addEventListener("click", () => download().catch(e => alert("저장 실패: " + e.message)));
+$("clear").addEventListener("click", () => {
+  Object.assign(state, {records: [], files: [], warnings: [], seen: new Set()});
+  render();
+});
+if (!window.ExcelJS){
+  state.warnings.push("ExcelJS 라이브러리를 불러오지 못했어요. 인터넷 연결을 확인하세요.");
+  render();
+}
+</script>
+</body>
+</html>
