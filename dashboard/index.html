@@ -1,0 +1,99 @@
+﻿<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAR 도구 대시보드</title>
+<style>
+:root{
+  --bg:#f3f7fd; --panel:#ffffff; --ink:#0f2a4a; --muted:#5a6f8c; --line:#d6e2f2;
+  --blue:#1f6fd1; --blue-dark:#14529e; --blue-soft:#e6f0fc; --on-blue:#ffffff;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Pretendard","Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif;line-height:1.55}
+header{background:linear-gradient(135deg,var(--blue-dark),var(--blue));color:var(--on-blue);padding:40px 16px 72px}
+.wrap{max-width:1040px;margin:0 auto;padding:0 16px}
+header h1{margin:0 0 6px;font-size:28px;letter-spacing:-.02em}
+header p{margin:0;opacity:.9;font-size:15px}
+main{margin-top:-44px;padding-bottom:48px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px;
+  display:flex;flex-direction:column;box-shadow:0 6px 20px rgba(20,82,158,.08);
+  transition:transform .15s ease, box-shadow .15s ease}
+.card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(20,82,158,.16)}
+.step{display:inline-block;align-self:flex-start;background:var(--blue-soft);color:var(--blue-dark);
+  font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;margin-bottom:12px}
+.card h2{margin:0 0 4px;font-size:21px}
+.file{color:var(--muted);font-size:13px;font-family:Consolas,monospace;margin-bottom:12px}
+.card p{margin:0 0 14px;color:var(--ink)}
+.card ul{margin:0 0 20px;padding-left:18px;color:var(--muted);font-size:14px}
+.card li{margin:3px 0}
+.io{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:13px;background:var(--blue-soft);
+  border-radius:10px;padding:10px 12px;margin-bottom:20px}
+.io b{color:var(--blue-dark)}
+.btn{margin-top:auto;display:block;text-align:center;background:var(--blue);color:var(--on-blue);
+  text-decoration:none;font-weight:700;padding:12px;border-radius:10px}
+.btn:hover{background:var(--blue-dark)}
+.btn:focus-visible{outline:3px solid #8fbaf0;outline-offset:2px}
+.flow{margin-top:28px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 24px}
+.flow h3{margin:0 0 12px;font-size:16px;color:var(--blue-dark)}
+.flow ol{margin:0;padding-left:20px;color:var(--ink);font-size:14px}
+.flow li{margin:4px 0}
+code{background:var(--blue-soft);color:var(--blue-dark);padding:1px 5px;border-radius:4px;font-size:.92em}
+footer{text-align:center;color:var(--muted);font-size:12px;padding:0 16px 32px}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>SAR 시험 데이터 도구</h1>
+    <p>엑셀 파일을 끌어다 놓으면 브라우저 안에서 바로 정리합니다. 파일은 서버로 보내지 않습니다.</p>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="cards">
+    <section class="card">
+      <span class="step">1단계</span>
+      <h2>Test Date</h2>
+      <div class="file">test_date/test_date.html</div>
+      <p>시험한 <b>SAR data 엑셀 파일</b>을 모두 업로드 해주세요.<br>SAR시험을 진행한 날의 시스템 체크 날짜를 모두 통합하여 추출해드립니다.</p>
+      <div class="io">
+        <b>입력</b><span>SAR 시험 데이터 엑셀 (.xlsx / .xlsm)</span>
+        <b>출력</b><span><code>systemcheckdate.xlsx</code> (Lab별 시트)</span>
+      </div>
+      <a class="btn" href="../test_date/test_date.html">Test Date 열기 →</a>
+    </section>
+
+    <section class="card">
+      <span class="step">2단계</span>
+      <h2>SAR Worst 선정</h2>
+      <div class="file">sar_worst/sar_worst.html</div>
+      <p>1단계에서 추출된 <b>systemcheckdate.xlsx</b>와 <b>모든 챔버의 시스템 엑셀</b>을 첨부해주세요. Dipole의 Serial 번호별 worst 측정 건을 선정해 Plot No.를 지정합니다.</p>
+      <ul>
+        <li>1g % 최대값 기준, 동률이면 10g %로 판정</li>
+        <li>기준 엑셀(<code>systemcheckdate.xlsx</code>)과 날짜·대역·Lab이 일치하는 건만 정리</li>
+        <li>검토 기간(시작일 ~ 종료일) 필터 선택 가능</li>
+      </ul>
+      <div class="io">
+        <b>입력</b><span>시스템 체크 엑셀 + (선택) 기준 엑셀</span>
+        <b>출력</b><span><code>SystemCheck_Worst.xlsx</code></span>
+      </div>
+      <a class="btn" href="../sar_worst/sar_worst.html">SAR Worst 열기 →</a>
+    </section>
+  </div>
+
+  <section class="flow">
+    <h3>권장 작업 순서</h3>
+    <ol>
+      <li><b>Test Date</b>에서 시험 데이터 엑셀을 넣고 <code>systemcheckdate.xlsx</code>를 저장합니다.</li>
+      <li><b>SAR Worst</b>에 시스템 체크 엑셀과 함께 위 파일을 넣어 기준 엑셀로 사용합니다.</li>
+      <li>결과 엑셀을 다운로드해 보고서에 반영합니다.</li>
+    </ol>
+  </section>
+</main>
+
+<footer>각 도구는 Chrome 또는 Edge에서 열어 사용하세요. 엑셀 라이브러리를 인터넷에서 불러오므로 인터넷 연결이 필요합니다.</footer>
+</body>
+</html>

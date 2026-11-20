@@ -7,26 +7,26 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <style>
 :root{
-  --bg:#f6f5f1; --panel:#ffffff; --ink:#1d1d1b; --muted:#6b6a64; --line:#d9d6cc;
-  --head:#d8cfb0; --head-ink:#1d1d1b; --accent:#2f5d8a; --accent-ink:#ffffff;
-  --warn:#a34b1f; --drop:#eeebe2; --chk:#fff27a; --chk-ink:#1d1d1b;
+  --bg:#f3f7fd; --panel:#ffffff; --ink:#0f2a4a; --muted:#5a6f8c; --line:#d6e2f2;
+  --head:#1f6fd1; --head-ink:#ffffff; --accent:#1f6fd1; --accent-ink:#ffffff;
+  --warn:#a34b1f; --drop:#eaf2fd; --chk:#fff27a; --chk-ink:#1d1d1b;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
-    --bg:#1a1a18; --panel:#24241f; --ink:#ecebe6; --muted:#a3a29a; --line:#3c3b35;
-    --head:#5a523a; --head-ink:#f3efe2; --accent:#6fa3d6; --accent-ink:#10161c;
-    --warn:#f0a07a; --drop:#2c2c27; --chk:#5e5414; --chk-ink:#fff7c2;
+    --bg:#0b1a2e; --panel:#11243d; --ink:#e6eef9; --muted:#9db0c9; --line:#26405f;
+    --head:#1f4f8f; --head-ink:#f0f6ff; --accent:#5b9cf0; --accent-ink:#0b1a2e;
+    --warn:#f0a07a; --drop:#0f2138; --chk:#5e5414; --chk-ink:#fff7c2;
   }
 }
 :root[data-theme="dark"]{
-  --bg:#1a1a18; --panel:#24241f; --ink:#ecebe6; --muted:#a3a29a; --line:#3c3b35;
-  --head:#5a523a; --head-ink:#f3efe2; --accent:#6fa3d6; --accent-ink:#10161c;
-  --warn:#f0a07a; --drop:#2c2c27; --chk:#5e5414; --chk-ink:#fff7c2;
+  --bg:#0b1a2e; --panel:#11243d; --ink:#e6eef9; --muted:#9db0c9; --line:#26405f;
+  --head:#1f4f8f; --head-ink:#f0f6ff; --accent:#5b9cf0; --accent-ink:#0b1a2e;
+  --warn:#f0a07a; --drop:#0f2138; --chk:#5e5414; --chk-ink:#fff7c2;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif}
 main{max-width:1180px;margin:0 auto;padding:28px 16px 60px}
-h1{font-size:22px;margin:0 0 4px}
+h1{font-size:22px;margin:0 0 4px;color:var(--accent)}
 .sub{color:var(--muted);margin:0 0 22px}
 h2{font-size:15px;margin:28px 0 10px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
@@ -49,6 +49,10 @@ th,td{border:1px solid var(--line);padding:6px 10px;text-align:center;white-spac
 th{background:var(--head);color:var(--head-ink)}
 tr.chk td{background:var(--chk);color:var(--chk-ink);font-weight:600}
 td.nt{text-align:left;white-space:normal;font-weight:400}
+.home{display:flex;justify-content:center;margin-top:36px}
+.home a{display:inline-block;background:var(--accent);color:var(--accent-ink);text-decoration:none;font-weight:600;padding:10px 28px;border-radius:8px}
+.home a:hover{filter:brightness(.9)}
+.home a:focus-visible{outline:3px solid var(--line);outline-offset:2px}
 </style>
 </head>
 <body>
@@ -72,6 +76,8 @@ td.nt{text-align:left;white-space:normal;font-weight:400}
 
   <h2>결과</h2>
   <section class="panel" id="result"></section>
+  <!-- 페이지 맨 끝: 대시보드로 돌아가기 -->
+  <nav class="home"><a href="../dashboard/index.html">홈 화면</a></nav>
 </main>
 
 <script>
