@@ -9,19 +9,19 @@
 :root{
   --bg:#f6f5f1; --panel:#ffffff; --ink:#1d1d1b; --muted:#6b6a64; --line:#d9d6cc;
   --head:#d8cfb0; --head-ink:#1d1d1b; --accent:#2f5d8a; --accent-ink:#ffffff;
-  --warn:#a34b1f; --drop:#eeebe2;
+  --warn:#a34b1f; --drop:#eeebe2; --chk:#fff27a; --chk-ink:#1d1d1b;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --bg:#1a1a18; --panel:#24241f; --ink:#ecebe6; --muted:#a3a29a; --line:#3c3b35;
     --head:#5a523a; --head-ink:#f3efe2; --accent:#6fa3d6; --accent-ink:#10161c;
-    --warn:#f0a07a; --drop:#2c2c27;
+    --warn:#f0a07a; --drop:#2c2c27; --chk:#5e5414; --chk-ink:#fff7c2;
   }
 }
 :root[data-theme="dark"]{
   --bg:#1a1a18; --panel:#24241f; --ink:#ecebe6; --muted:#a3a29a; --line:#3c3b35;
   --head:#5a523a; --head-ink:#f3efe2; --accent:#6fa3d6; --accent-ink:#10161c;
-  --warn:#f0a07a; --drop:#2c2c27;
+  --warn:#f0a07a; --drop:#2c2c27; --chk:#5e5414; --chk-ink:#fff7c2;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif}
@@ -43,12 +43,18 @@ button:disabled{opacity:.45;cursor:default}
 .files li{border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--muted)}
 .warn{color:var(--warn)}
 #result:empty::before{content:"아직 결과가 없습니다.";color:var(--muted)}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;max-width:900px}
+th,td{border:1px solid var(--line);padding:6px 10px;text-align:center;white-space:nowrap}
+th{background:var(--head);color:var(--head-ink)}
+tr.chk td{background:var(--chk);color:var(--chk-ink);font-weight:600}
+td.nt{text-align:left;white-space:normal;font-weight:400}
 </style>
 </head>
 <body>
 <main>
   <h1>Test Date</h1>
-  <p class="sub">TODO: 도구 설명 한 줄</p>
+  <p class="sub">여러 SAR 엑셀의 System Check Date를 모아 날짜 · 시스템 대역 · SAR Lab. 표로 정리합니다.</p>
 
   <section class="panel">
     <div id="drop" tabindex="0">
@@ -97,10 +103,196 @@ drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('
 $('file').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
 $('clear').addEventListener('click', () => { state.files = []; $('msg').textContent = ''; $('result').innerHTML = ''; render(); });
 
+// ── 규칙 ───────────────────────────────────────────────
+const BANDS = [13.5, 750, 835, 1750, 1900, 2300, 2450, 2600, 3500, 3700, 3900, 5250, 5600, 5750, 5800, 6000, 8000];
+const norm = s => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+const H_DATE = 'system check date', H_FREQ = 'frequency (mhz)', H_LAB = 'sar lab.';
+
+// 측정 주파수와 가장 가까운 시스템 대역 목록.
+// 두 대역의 정확히 가운데(예: 5775 → 5750, 5800)면 두 시스템이 모두 필요하므로 둘 다 반환.
+function toBands(f){
+  const s = BANDS.map(b => ({ b, d: Math.abs(b - f) })).sort((x, y) => x.d - y.d || x.b - y.b);
+  return Math.abs(s[0].d - s[1].d) < 1e-9 ? [s[0].b, s[1].b] : [s[0].b];
+}
+// 3000대역(3500/3700/3900) 시스템이 걸린 중간 주파수는 실제로 쓰지 않는 값이라 결과에 표시해 확인하게 한다.
+// 숫자 표시는 모두 소수점 둘째 자리까지 (예: 13.50, 2450.00)
+const fmt2 = n => Number(n).toFixed(2);
+// 13.5 대역은 주파수 숫자 대신 다이폴 이름 CLA-13으로 표시된다.
+const isCLA13 = s => /CLA\s*-?\s*13(?!\d)/i.test(String(s));
+const is3G = b => b >= 3000 && b < 4000;
+const needsCheck = bands => bands.length === 2 && bands.some(is3G);
+
+// ExcelJS 셀 값 → 원시 값 (수식 결과, 서식 텍스트 처리)
+function raw(v){
+  if (v && typeof v === 'object' && !(v instanceof Date)){
+    if ('result' in v) return raw(v.result);
+    if (Array.isArray(v.richText)) return v.richText.map(t => t.text).join('');
+    if ('text' in v) return v.text;
+    return null;
+  }
+  return v;
+}
+const pad = n => String(n).padStart(2, '0');
+function toDate(v){
+  v = raw(v);
+  // 날짜 서식이 걸린 0(빈 수식 결과)은 1899-12-30으로 읽히므로 제외
+  if (v instanceof Date && !isNaN(v) && v.getUTCFullYear() > 1900) return `${v.getUTCFullYear()}-${pad(v.getUTCMonth() + 1)}-${pad(v.getUTCDate())}`;
+  if (typeof v === 'string'){
+    const m = v.trim().match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+    if (m) return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
+  }
+  return null;
+}
+function toFreq(v){
+  v = raw(v);
+  const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(/,/g, ''));
+  return isFinite(n) && n > 0 ? n : null;
+}
+
+// 한 시트에서 (날짜, 대역, SAR Lab.) 추출. 헤더 행 아래 ~ 다음 헤더 행 전까지가 한 표.
+function scanSheet(ws, out){
+  let cols = null;
+  ws.eachRow({ includeEmpty: false }, row => {
+    let dateCol = 0, freqCol = 0, labCol = 0, dipoleCol = 0;
+    row.eachCell(c => {
+      const t = norm(raw(c.value));
+      if (t === H_DATE) dateCol = c.col;
+      else if (t === H_FREQ) freqCol = c.col;
+      else if (t === H_LAB) labCol = c.col;
+      else if (t.includes('dipole')) dipoleCol = c.col;
+    });
+    if (dateCol){ cols = (freqCol || dipoleCol) ? { dateCol, freqCol, labCol, dipoleCol } : null; return; }
+    if (!cols) return;
+    const date = toDate(row.getCell(cols.dateCol).value);
+    if (!date) return;
+    const cellText = col => col ? String(raw(row.getCell(col).value) ?? '') : '';
+    const lab = cellText(cols.labCol).trim();
+    let bands;
+    if (isCLA13(cellText(cols.dipoleCol)) || isCLA13(cellText(cols.freqCol))){
+      bands = [13.5];                               // CLA-13 = 13.5 대역 (주파수 숫자와 무관)
+    } else {
+      const freq = cols.freqCol ? toFreq(row.getCell(cols.freqCol).value) : null;
+      if (freq == null) return;                     // 주파수 없는 행은 제외
+      bands = toBands(freq);
+    }
+    const freq = bands.length === 2 ? toFreq(row.getCell(cols.freqCol).value) : null;
+    const flag = needsCheck(bands);
+    for (const band of bands){
+      const k = `${date}|${band}|${lab}`;
+      if (!out.has(k)) out.set(k, { date, band, lab, checkFreqs: new Set() });
+      if (flag) out.get(k).checkFreqs.add(freq);   // 일반 행과 합쳐져도 표시는 유지
+    }
+  });
+}
+
+// SAR Lab. 정렬: 번호 오름차순(SAR 2 < SAR 4 < SAR 10). 번호 없는 값은 글자순, 빈 값은 맨 뒤.
+function labCmp(a, b){
+  if (!a || !b) return (!a) - (!b);
+  const na = parseFloat((a.match(/\d+(\.\d+)?/) || [])[0]), nb = parseFloat((b.match(/\d+(\.\d+)?/) || [])[0]);
+  if (isFinite(na) && isFinite(nb) && na !== nb) return na - nb;
+  if (isFinite(na) !== isFinite(nb)) return isFinite(na) ? -1 : 1;
+  return a.localeCompare(b, 'ko', { numeric: true });
+}
+
+let lastRows = [];
+
 $('run').addEventListener('click', async () => {
-  // TODO: 처리 로직
-  $('msg').textContent = `${state.files.length}개 파일 — 처리 로직은 아직 없습니다.`;
+  $('run').disabled = true;
+  $('result').innerHTML = '';
+  const found = new Map(), errors = [];
+  for (const [i, f] of state.files.entries()){
+    $('msg').textContent = `읽는 중… (${i + 1}/${state.files.length}) ${f.name}`;
+    try{
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(await f.arrayBuffer());
+      wb.eachSheet(ws => scanSheet(ws, found));
+    }catch(e){
+      errors.push(`${f.name}: 읽을 수 없어요 (${e.message})`);
+    }
+  }
+  lastRows = [...found.values()].sort((a, b) =>
+    labCmp(a.lab, b.lab) || a.date.localeCompare(b.date) || a.band - b.band);
+  for (const r of lastRows)
+    r.note = r.checkFreqs.size ? `확인 필요: ${[...r.checkFreqs].sort((x, y) => x - y).map(fmt2).join(', ')} MHz는 두 시스템의 정확히 가운데` : '';
+
+  const checks = lastRows.filter(r => r.note).length;
+  $('msg').innerHTML = `${state.files.length}개 파일에서 ${lastRows.length}건` +
+    (checks ? ` · <span class="warn">확인 필요 ${checks}건</span>` : '') +
+    errors.map(e => `<br><span class="warn">${esc(e)}</span>`).join('');
+  renderResult();
+  $('run').disabled = false;
 });
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function renderResult(){
+  if (!lastRows.length){
+    $('result').innerHTML = '<p class="warn">System Check Date가 적힌 행을 찾지 못했어요.</p>';
+    return;
+  }
+  $('result').innerHTML = `
+    <div class="bar" style="margin:0 0 12px"><span class="grow"></span><button id="save" class="primary">엑셀로 저장</button></div>
+    <div class="tbl"><table>
+      <thead><tr><th>No.</th><th>System Check Date</th><th>대역 (MHz)</th><th>SAR Lab.</th><th>비고</th></tr></thead>
+      <tbody>${lastRows.map((r, i) => `<tr class="${r.note ? 'chk' : ''}"><td>${i + 1}</td><td>${r.date}</td>
+        <td>${fmt2(r.band)}${r.note ? ' ⚠' : ''}</td><td>${esc(r.lab)}</td><td class="nt">${esc(r.note)}</td></tr>`).join('')}</tbody>
+    </table></div>`;
+  $('save').addEventListener('click', saveXlsx);
+}
+
+// 시트 이름: SAR Lab. 값에서 "SAR 숫자" 부분만 (예: "SAR 4 (2F)" → "SAR 4"). 없으면 Lab 값, 빈칸이면 "기타".
+function sheetNameOf(lab){
+  const m = String(lab).match(/SAR\s*\d+/i);
+  const name = (m ? m[0] : String(lab)).replace(/[\[\]:*?\/\\]/g, ' ').trim().slice(0, 31);
+  return name || '기타';
+}
+
+async function saveXlsx(){
+  const wb = new ExcelJS.Workbook();
+  // Lab별 시트 (lastRows가 이미 Lab 번호순 → 시트도 같은 순서)
+  const groups = new Map();
+  for (const r of lastRows){
+    const n = sheetNameOf(r.lab);
+    if (!groups.has(n)) groups.set(n, []);
+    groups.get(n).push(r);
+  }
+  for (const [name, rows] of groups) fillSheet(wb.addWorksheet(name), rows);
+  const buf = await wb.xlsx.writeBuffer();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  a.download = 'systemcheckdate.xlsx';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function fillSheet(ws, rows){
+  ws.columns = [
+    { header: 'No.', width: 6 },
+    { header: 'System Check Date', width: 20 },
+    { header: '대역 (MHz)', width: 14 },
+    { header: 'SAR Lab.', width: 12 },
+    { header: '비고', width: 44 },
+  ];
+  rows.forEach((r, i) => ws.addRow([i + 1, r.date, r.band, r.lab, r.note]));
+  ws.getColumn(3).numFmt = '0.00';   // 대역은 숫자 그대로 두고 소수점 둘째 자리까지 표시
+  const thin = { style: 'thin', color: { argb: 'FF808080' } };
+  ws.eachRow((row, n) => row.eachCell(c => {
+    c.border = { top: thin, left: thin, bottom: thin, right: thin };
+    c.alignment = { horizontal: 'center', vertical: 'middle' };
+    if (n === 1){
+      c.font = { bold: true };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC6D9F0' } };
+    }
+  }));
+  // 확인 필요 행: 행 전체 노란색, 비고는 왼쪽 정렬
+  rows.forEach((r, i) => {
+    if (!r.note) return;
+    const row = ws.getRow(i + 2);
+    for (let c = 1; c <= 5; c++) row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+    row.getCell(5).alignment = { horizontal: 'left', vertical: 'middle' };
+  });
+  ws.views = [{ state: 'frozen', ySplit: 1 }];
+}
 </script>
 </body>
 </html>
