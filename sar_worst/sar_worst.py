@@ -570,7 +570,7 @@ def write_main(ws, records, no, source_name=None):
             rr = r + i
             box(ws, f"E{rr}", g["lab"])
             box(ws, f"F{rr}", g["zoom"], fmt="0.00")
-            box(ws, f"G{rr}", g["norm"], fmt="0.0")
+            box(ws, f"G{rr}", g["norm"], fmt="0.00")
             box(ws, f"H{rr}", g["target"], fmt="0.00")
             box(ws, f"I{rr}", None if g["delta"] is None else round(g["delta"], 2), fmt="0.00")
         box(ws, span("J"), w["no"] if w else None, font=BOLD if w else FONT)

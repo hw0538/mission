@@ -649,7 +649,7 @@ function render(){
      <tr><th>Type</th><th>Serial #</th><th>Zoom Scan to<br>100 mW</th><th>Normalize<br>to 1 W</th></tr>` +
     cur.records.map(r => {
       const w = no.get(r.sig), n = r.rows.length;
-      const g = x => `<td>${esc(x.lab)}</td><td>${fx(x.zoom, 2)}</td><td>${fx(x.norm, 1)}</td><td>${fx(x.target, 2)}</td><td>${fx(x.delta, 2)}</td>`;
+      const g = x => `<td>${esc(x.lab)}</td><td>${fx(x.zoom, 2)}</td><td>${fx(x.norm, 2)}</td><td>${fx(x.target, 2)}</td><td>${fx(x.delta, 2)}</td>`;
       return r.rows.map((x, i) => i === 0
         ? `<tr><td rowspan="${n}">${esc(fmtDate(r))}</td><td rowspan="${n}">${esc(r.type)}</td><td rowspan="${n}">${esc(r.serial)}</td>
            <td rowspan="${n}">${esc(r.liquid)}</td>${g(x)}<td rowspan="${n}"${w ? ' class="num"' : ""}${w && w.tied.length ? ` title="1g·10g 완전 동률"` : ""}>${w ? w.no : ""}</td></tr>`
@@ -711,7 +711,7 @@ function writeFileSheet(wb, f, no){
       const rr = r + i;
       box(ws, `E${rr}`, g.lab);
       box(ws, `F${rr}`, g.zoom, {fmt: "0.00"});
-      box(ws, `G${rr}`, g.norm, {fmt: "0.0"});
+      box(ws, `G${rr}`, g.norm, {fmt: "0.00"});
       box(ws, `H${rr}`, g.target, {fmt: "0.00"});
       box(ws, `I${rr}`, round2(g.delta), {fmt: "0.00"});
     });
