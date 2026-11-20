@@ -9,19 +9,19 @@
 :root{
   --bg:#f6f5f1; --panel:#ffffff; --ink:#1d1d1b; --muted:#6b6a64; --line:#d9d6cc;
   --head:#d8cfb0; --head-ink:#1d1d1b; --accent:#2f5d8a; --accent-ink:#ffffff;
-  --warn:#a34b1f; --drop:#eeebe2; --mark:#e0a800;
+  --warn:#a34b1f; --drop:#eeebe2; --mark:#e0a800; --err:#c62828; --err-bg:#fdecec;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --bg:#1a1a18; --panel:#24241f; --ink:#ecebe6; --muted:#a3a29a; --line:#3c3b35;
     --head:#5a523a; --head-ink:#f3efe2; --accent:#6fa3d6; --accent-ink:#10161c;
-    --warn:#f0a07a; --drop:#2c2c27; --mark:#ffcf40;
+    --warn:#f0a07a; --drop:#2c2c27; --mark:#ffcf40; --err:#ff6b6b; --err-bg:#3a1f1f;
   }
 }
 :root[data-theme="dark"]{
   --bg:#1a1a18; --panel:#24241f; --ink:#ecebe6; --muted:#a3a29a; --line:#3c3b35;
   --head:#5a523a; --head-ink:#f3efe2; --accent:#6fa3d6; --accent-ink:#10161c;
-  --warn:#f0a07a; --drop:#2c2c27; --mark:#ffcf40;
+  --warn:#f0a07a; --drop:#2c2c27; --mark:#ffcf40; --err:#ff6b6b; --err-bg:#3a1f1f;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif}
@@ -41,6 +41,7 @@ button.primary{background:var(--accent);border-color:var(--accent);color:var(--a
 button:disabled{opacity:.45;cursor:default}
 .files{margin:12px 0 0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:6px}
 .files li{border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--muted)}
+.files li.ref{border-color:var(--accent);color:var(--accent)}
 .stats{display:flex;gap:10px;flex-wrap:wrap}
 .stat{flex:1;min-width:120px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
 .stat .n{font-size:22px;font-weight:700}
@@ -63,6 +64,10 @@ td.left{text-align:left}
 .tabinfo{color:var(--muted);font-size:13px;margin:0 0 8px}
 .saved{color:var(--muted);font-size:13px}
 .warn{color:var(--warn);font-size:13px;margin:6px 0 0;padding-left:18px}
+/* 기준 엑셀에는 있는데 시스템 체크가 없는 항목 (오류, 빨간색) */
+.referr{margin-top:14px;padding:10px 14px;border:2px solid var(--err);border-radius:10px;background:var(--err-bg);color:var(--err)}
+.referr b{display:block;margin-bottom:4px}
+.referr ul{margin:0;padding-left:18px;font-size:13px;line-height:1.7}
 .empty{color:var(--muted);text-align:center;padding:26px}
 /* 판정 규칙 (맨 아래, 접기) */
 .rules{margin-top:32px;border-top:1px solid var(--line);padding-top:12px;font-size:13px;color:var(--muted)}
@@ -73,6 +78,15 @@ td.left{text-align:left}
 /* 검토 기간 */
 .period{margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center}
 .period .lbl{font-weight:600}
+.period-box{margin-top:14px;padding:10px 14px;border:1px solid var(--line);border-radius:10px}
+.period-box summary{cursor:pointer;width:max-content;max-width:100%;padding:2px 0}
+.period-box summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.period-box .lbl{font-weight:600}
+.period-box .hint{color:var(--muted);font-size:12px}
+.period-body{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin-top:10px}
+.period-box input[type=date]{font:inherit;border-radius:7px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:6px 8px;color-scheme:light dark}
+.period-box .err{display:block;color:var(--warn);font-size:13px;margin-top:6px}
+.period-box .err:empty{display:none}
 .period input[type=date]{font:inherit;border-radius:7px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:6px 8px;color-scheme:light dark}
 .period .hint{color:var(--muted);font-size:12px}
 .period .err{color:var(--warn);font-size:13px;flex-basis:100%}
@@ -92,18 +106,27 @@ td.left{text-align:left}
     </div>
     <ul class="files" id="fileList"></ul>
     <div class="period">
-      <span class="lbl">검토 기간</span>
-      <input type="date" id="from" aria-label="시작일 (YYYY-MM-DD)"> <span>~</span> <input type="date" id="to" aria-label="종료일 (YYYY-MM-DD)">
-      <button id="periodReset" type="button">전체 기간</button>
-      <span class="hint" id="dataRange">비워 두면 전체 기간을 검토해요.</span>
-      <span class="err" id="periodErr" role="alert"></span>
+      <span class="lbl">기준 엑셀</span>
+      <span id="refInfo" class="hint">없음 · systemcheckdate.xlsx(System Check Date 표)를 같이 넣으면 같은 날짜·대역(·SAR Lab) 측정 건만 정리해요.</span>
+      <button id="refReset" type="button" class="hidden">기준 해제</button>
     </div>
+    <!-- 검토 기간: 접기/펼치기 (기본 접힘, 접혀 있어도 제목 옆에 현재 기간 표시) -->
+    <details class="period-box" id="periodBox">
+      <summary><span class="lbl">검토 기간</span> <span class="hint" id="periodSum">전체 기간</span></summary>
+      <div class="period-body">
+        <input type="date" id="from" aria-label="시작일 (YYYY-MM-DD)"> <span>~</span> <input type="date" id="to" aria-label="종료일 (YYYY-MM-DD)">
+        <button id="periodReset" type="button">전체 기간</button>
+        <span class="hint" id="dataRange">비워 두면 전체 기간을 검토해요.</span>
+      </div>
+      <span class="err" id="periodErr" role="alert"></span>
+    </details>
     <div class="bar">
       <span class="grow"></span>
       <button id="clear" disabled>초기화</button>
       <button id="download" class="primary" disabled>결과 엑셀 다운로드</button>
     </div>
     <ul class="warn" id="warnings"></ul>
+    <div class="referr hidden" id="refErr" role="alert"></div>
   </section>
 
   <div id="results" class="hidden">
@@ -132,6 +155,7 @@ td.left{text-align:left}
     <ul>
       <li>엑셀은 <b>합치지 않고 파일별로 정리</b>하고(결과 엑셀에 파일마다 시트 하나), worst 는 <b>모든 파일의 데이터 값을 비교</b>해서 Serial 번호가 같은 것끼리 하나씩 고릅니다 (대소문자·공백 무시, 여러 파일에 같은 측정 건이 있으면 비교할 때 한 번만 셈).</li>
       <li>검토 기간: 시작일 ~ 종료일(두 날짜 포함)을 고르면 그 기간의 측정 건만 비교하고 시트에 넣습니다. 비워 두면 전체 기간입니다. 기간 안에 측정 건이 없는 파일은 시트를 만들지 않습니다.</li>
+      <li>기준 엑셀: System Check Date 표(예: <code>systemcheckdate.xlsx</code> — 날짜 · 대역 (MHz) · SAR Lab.)를 같이 넣으면 자동으로 인식해, <b>날짜와 대역(시스템)이 같은</b> 측정 건만 정리합니다. 측정 건에 <b>SAR 4</b>처럼 Lab 이 적혀 있으면 <b>Lab 번호도 같은</b> 행만 인정합니다. 대역은 Frequency 열이 있으면 그 값, 없으면 Type(D2450V2 → 2450, D5GHzV2 → 5250/5600/5750/5800)으로 정합니다.</li>
       <li>넘버링 순서: 파일 이름에 번호가 있으면 <b>그 번호 순서대로</b> 파일(시트)을 정렬하고, 첫 파일의 시트부터 위→아래로 Plot No.를 붙입니다 (번호 없는 파일은 뒤에).</li>
       <li>번호 없는 시트: 정리 후 worst 번호가 하나도 없는 파일(시트)이 있으면, 그 파일 전체(Serial 무관)에서 같은 기준으로 worst 하나를 골라 번호를 붙입니다.</li>
       <li>Worst 기준: |1g Delta| 최대 → 1g 동률이면 |10g Delta| 최대 → 둘 다 동률이면 먼저 측정된 데이터 (소수 둘째 자리 기준, 부호 무시).</li>
@@ -143,7 +167,8 @@ td.left{text-align:left}
 <script>
 "use strict";
 // records: 모든 파일의 측정 건(파일 간 중복도 그대로 보관), fileNames: 불러온 순서, tab: 미리보기에서 고른 파일
-const state = { records: [], files: [], fileNames: [], warnings: [], seen: new Set(), tab: 0 };
+// refs: 기준 엑셀(System Check Date)의 행 {date, bands, lab}, refFiles: 기준 엑셀 파일 {name, n}
+const state = { records: [], files: [], fileNames: [], warnings: [], seen: new Set(), tab: 0, refs: [], refFiles: [], sheetWarn: [] };
 const $ = id => document.getElementById(id);
 
 /* ============================================================ 값 정리 */
@@ -192,6 +217,33 @@ const bandKey = t => text(t).toUpperCase().replace(/[\s\-_]/g, "");
 // Serial 비교용: 대소문자·공백 무시 (4d174 = 4D174), 숫자로 저장된 1205.0 → 1205
 const serialKey = s => text(s).replace(/\.0+$/, "").toUpperCase().replace(/\s/g, "");
 
+/* ---- 기준 엑셀(System Check Date)과 맞추기: 날짜 · 대역 · SAR Lab ---- */
+const SYSTEM_BANDS = [13.5, 750, 835, 1750, 1900, 2300, 2450, 2600, 3500, 5250, 5600, 5750, 5800, 6000, 8000];
+// 가장 가까운 시스템 대역 (정확히 중간이면 둘 다)
+function nearestBands(f){
+  const d = Math.min(...SYSTEM_BANDS.map(b => Math.abs(b - f)));
+  return SYSTEM_BANDS.filter(b => Math.abs(Math.abs(b - f) - d) < 1e-9);
+}
+// 측정 건의 대역: Frequency 열 값 → 없으면 Type (D2450V2 → 2450, D5GHzV2 → 5 GHz 대역 전부)
+function bandsOf(freq, type){
+  if (freq != null && freq > 0) return nearestBands(freq);
+  let m = text(type).match(/^D\s*(\d+(?:\.\d+)?)\s*GHz/i);
+  if (m){
+    const g = +m[1], lo = g * 1000, hi = (Math.floor(g) + 1) * 1000;
+    const inGhz = SYSTEM_BANDS.filter(b => b >= lo && b < hi);
+    return inGhz.length ? inGhz : nearestBands(lo);
+  }
+  m = text(type).match(/^D\s*(\d+(?:\.\d+)?)/i);
+  return m ? nearestBands(+m[1]) : [];
+}
+// 'SAR 4' / 'SAR4' / 'SAR-4' → 4 (allowBare 이면 '4' 도 4)
+function labNo(v, allowBare){
+  const t = text(v);
+  const m = t.match(/SAR\s*[-#.]?\s*(\d+)/i) || (allowBare ? t.match(/^(\d+)$/) : null);
+  return m ? +m[1] : null;
+}
+const bandText = bs => bs.map(b => String(b)).join("/");
+
 /* ============================================================ 읽기
    측정 건(block) = '1g' 행부터 라벨(8g/10g/APD…)이 이어지는 행까지 → 2줄·4줄 양식 모두 지원.
    결과에는 1g·10g 행만 사용.                                                         */
@@ -234,6 +286,8 @@ function readSheet(ws, file){
     if (!col.norm && h.includes("normaliz")) col.norm = c;
     if (!col.target && h.includes("target")) col.target = c;
     if (!col.liquid && (h.includes("liquid") || /\beli\b/.test(h))) col.liquid = c;
+    if (!col.freq && /freq|mhz|ghz/.test(h)){ col.freq = c; col.freqGhz = h.includes("ghz") && !h.includes("mhz"); }
+    if (!col.lab && /\blab\b|sar\s*system/.test(h)) col.lab = c;
     if (h.includes("delta")) deltaCand.push(c);
   }
   const r1 = spans.map(s => s[0]);
@@ -268,7 +322,8 @@ function readSheet(ws, file){
   if (!col.date) missing.push("날짜");
   if (!col.type) missing.push("Type");
   if (!delta || (!delta.ok && !deltaCand.length)) missing.push("Delta");
-  if (missing.length){ state.warnings.push(`${source}: ${missing.join(", ")} 열을 찾지 못해 건너뜀`); return []; }
+  // 시스템 체크 표가 아닌 시트(Dipole 등): 같은 파일의 다른 시트에서 데이터를 읽었으면 경고하지 않음 (addFiles 에서 판단)
+  if (missing.length){ state.sheetWarn.push(`${source}: ${missing.join(", ")} 열을 찾지 못해 건너뜀`); return []; }
   col.delta = delta.c;
   if (delta.pair){
     if (!col.norm) col.norm = delta.pair[0];
@@ -293,15 +348,54 @@ function readSheet(ws, file){
       rows: [],   // 1g·8g·10g·APD… 원본 순서 그대로 (결과에 모두 표시)
     };
     for (let r = s[0]; r <= s[1]; r++) b.rows.push({lab: text(get(r, labelCol)), ...vals(r)});
+    // 대역(기준 엑셀 비교용): Frequency 열 → 없으면 Type
+    const fv = num(get(s[0], col.freq));
+    b.bands = bandsOf(fv == null ? null : (col.freqGhz ? fv * 1000 : fv), b.type);
+    // SAR Lab: Lab/SAR System 열 → 없으면 측정 건 안에서 'SAR 4' 같은 글자 (원본 Plot 칸 등)
+    b.lab = col.lab ? labNo(get(s[0], col.lab), true) : null;
+    for (let r = s[0]; r <= s[1] && b.lab == null; r++)
+      for (let c = 1; c <= maxC && b.lab == null; c++)
+        if (c !== labelCol && c !== col.type && /^SAR\s*[-#.]?\s*\d+$/i.test(text(get(r, c)))) b.lab = labNo(get(r, c));
     if (!b.type){ state.warnings.push(`${source} ${s[0]}행: Type 이 비어 있어 건너뜀`); continue; }
     if (!col.serial) { if (!out.length) state.warnings.push(`${source}: Serial 열을 찾지 못해 worst 판정에서 제외 (표에는 표시)`); }
     else if (!b.serial) state.warnings.push(`${source} ${s[0]}행: Serial 이 비어 있어 worst 판정에서 제외 (표에는 표시)`);
-    if (b.g1.delta == null || b.g10.delta == null){ state.warnings.push(`${source} ${s[0]}행: Delta 값을 구할 수 없어 건너뜀`); continue; }
+    if (b.g1.delta == null || b.g10.delta == null) continue;   // 값이 비어 있는 행(빈 양식 줄)은 조용히 건너뜀
     b.d1 = b.g1.delta; b.d10 = b.g10.delta;
     b.sig = JSON.stringify([dateKey(b), bandKey(b.type), b.serial, b.rows]);
     out.push(b);
   }
   return out;
+}
+
+/* 기준 엑셀: 'System Check Date' 헤더가 있는 표 (test_date 도구 결과 systemcheckdate.xlsx 등)
+   헤더 행에서 날짜(System Check Date)·대역(MHz/대역/Band/Freq)·SAR Lab 열을 찾음. 표가 없으면 null */
+function readRef(wb, file){
+  let found = false;
+  const rows = [];
+  wb.eachSheet(ws => {
+    const get = (r, c) => { const cell = ws.getCell(r, c); return cellVal(cell.isMerged ? cell.master : cell); };
+    const maxR = ws.rowCount, maxC = ws.columnCount;
+    for (let hr = 1; hr <= Math.min(maxR, 30); hr++){
+      let dc = null, bc = null, lc = null;
+      for (let c = 1; c <= maxC; c++){
+        const h = low(get(hr, c));
+        if (!dc && h.includes("system check date")) dc = c;
+        else if (!bc && /mhz|대역|band|freq/.test(h)) bc = c;
+        else if (!lc && /\blab\b/.test(h)) lc = c;
+      }
+      if (!dc || !bc) continue;
+      found = true;
+      for (let r = hr + 1; r <= maxR; r++){
+        const d = parseDate(get(r, dc));
+        if (!d) continue;
+        const bands = [...new Set((text(get(r, bc)).match(/\d+(?:\.\d+)?/g) || []).flatMap(x => nearestBands(+x)))];
+        if (!bands.length) continue;
+        rows.push({file, date: fmtDate({date: d}), bands, lab: lc ? labNo(get(r, lc), true) : null});
+      }
+      break;
+    }
+  });
+  return found ? rows : null;
 }
 
 async function addFiles(fileList){
@@ -310,14 +404,24 @@ async function addFiles(fileList){
     if (!/\.(xlsx|xlsm)$/i.test(f.name) || f.name.startsWith("~$")){
       state.warnings.push(`${f.name}: .xlsx/.xlsm 파일만 읽을 수 있어요 (.xls 는 엑셀에서 .xlsx 로 저장 후 사용)`); continue;
     }
-    if (state.fileNames.includes(f.name)){
+    if (state.fileNames.includes(f.name) || state.refFiles.some(x => x.name === f.name)){
       state.warnings.push(`${f.name}: 이미 불러온 파일이라 건너뛰었어요`); continue;
     }
     try{
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(await f.arrayBuffer());
       const recs = [];
+      state.sheetWarn = [];
       wb.eachSheet(ws => recs.push(...readSheet(ws, f.name)));
+      if (!recs.length) state.warnings.push(...state.sheetWarn);   // 파일 전체에서 데이터를 못 찾았을 때만 시트 경고
+      // 시스템 체크 데이터가 없고 'System Check Date' 표가 있으면 → 기준 엑셀
+      const ref = recs.length ? null : readRef(wb, f.name);
+      if (ref){
+        state.refs.push(...ref);
+        state.refFiles.push({name: f.name, n: ref.length});
+        if (!ref.length) state.warnings.push(`${f.name}: 기준 엑셀(System Check Date)에 날짜·대역이 있는 행이 없어요`);
+        continue;
+      }
       if (!recs.length){
         state.warnings.push(`${f.name}: 시스템 체크 데이터를 찾지 못했어요 ('1g' 행과 날짜·Type·Delta 열 확인)`);
         state.files.push(`${f.name} (0건)`);
@@ -383,9 +487,24 @@ function inPeriod(r){
   return (!period.from || d >= period.from) && (!period.to || d <= period.to);
 }
 
+/* 기준 엑셀 비교: 같은 날짜 + 같은 대역 + (측정 건에 'SAR 4' 가 있으면) 같은 Lab 번호인 행이 있어야 함 */
+const refOn = () => state.refs.length > 0;
+const refHit = (x, r) => x.date === fmtDate(r)
+  && (!r.bands.length || x.bands.some(b => r.bands.includes(b)))
+  && (r.lab == null || x.lab == null || x.lab === r.lab);
+function matchRef(r){
+  if (!refOn()) return true;
+  if (!r.date) return false;
+  return state.refs.some(x => refHit(x, r));
+}
+const refInPeriod = x => !periodOn() || (!periodBad() && (!period.from || x.date >= period.from) && (!period.to || x.date <= period.to));
+
 function analyze(){
   state.records.forEach((r, i) => { r.i = i; });
-  const pool = state.records.filter(inPeriod);   // 기간 안의 측정 건만 검토
+  const inP = state.records.filter(inPeriod);    // 기간 안의 측정 건
+  const pool = inP.filter(matchRef);             // + 기준 엑셀과 맞는 측정 건만 검토
+  // 기준 엑셀에 있지만 맞는 측정 건이 없는 행 (기간 안)
+  const refMissing = refOn() ? state.refs.filter(x => refInPeriod(x) && !state.records.some(r => r.date && refHit(x, r))) : [];
   // 1) 파일별 표 (엑셀은 합치지 않음). 파일 순서는 파일 이름의 번호 순서, 파일 안에서는 날짜순
   //    기간 안에 측정 건이 없는 파일은 시트를 만들지 않음
   const allOrder = sortFiles(state.fileNames);
@@ -443,7 +562,8 @@ function analyze(){
   // 번호는 측정 건(sig) 기준 → 같은 측정 건이 여러 파일 시트에 있으면 모두 같은 번호
   const no = new Map();
   worst.forEach((w, k) => { w.no = k + 1; no.set(w.rec.sig, w); });
-  return {byFile, records, worst, no, skipped, outside: state.records.length - pool.length};
+  return {byFile, records, worst, no, skipped, outside: state.records.length - inP.length,
+          noRef: inP.length - pool.length, refMissing};
 }
 
 /* ============================================================ 화면 */
@@ -453,24 +573,42 @@ function render(){
   // 파일 목록: 넘버링 순서(파일 이름의 번호 순서)로 표시, 데이터가 없던 파일은 뒤에
   const cnt = name => state.records.filter(r => r.file === name).length;
   $("fileList").innerHTML = sortFiles(state.fileNames).map((n, i) => `<li>${i + 1}. ${esc(n)} (${cnt(n)}건)</li>`)
-    .concat(state.files.filter(f => / \(0건\)$/.test(f)).map(f => `<li>${esc(f)}</li>`)).join("");
+    .concat(state.files.filter(f => / \(0건\)$/.test(f)).map(f => `<li>${esc(f)}</li>`))
+    .concat(state.refFiles.map(f => `<li class="ref">기준: ${esc(f.name)} (${f.n}건)</li>`)).join("");
   $("warnings").innerHTML = state.warnings.map(w => `<li>${esc(w)}</li>`).join("");
+  // 기준 엑셀 안내
+  const labs = [...new Set(state.refs.map(x => x.lab).filter(x => x != null))].sort((a, b) => a - b);
+  $("refInfo").textContent = refOn()
+    ? `${state.refFiles.map(f => f.name).join(", ")} · ${state.refs.length}건${labs.length ? ` (SAR ${labs.join(", SAR ")})` : ""} · 같은 날짜·대역의 측정 건만 정리하고, 측정 건에 'SAR 4' 처럼 Lab 이 적혀 있으면 Lab 번호도 같아야 해요.`
+    : "없음 · systemcheckdate.xlsx(System Check Date 표)를 같이 넣으면 같은 날짜·대역(·SAR Lab) 측정 건만 정리해요.";
+  $("refReset").classList.toggle("hidden", !state.refFiles.length);
   // 검토 기간 안내
   const ds = state.records.filter(r => r.date).map(fmtDate).sort();
   $("dataRange").textContent = ds.length ? `불러온 데이터 기간: ${ds[0]} ~ ${ds[ds.length - 1]} · 비워 두면 전체 기간을 검토해요.`
                                         : "비워 두면 전체 기간을 검토해요.";
   $("periodErr").textContent = periodBad() ? "시작일이 종료일보다 늦어요. 기간을 다시 골라 주세요." : "";
+  // 접혀 있어도 현재 기간이 보이게, 기간 오류가 있으면 자동으로 펼침
+  $("periodSum").textContent = periodOn() ? `${period.from || "처음"} ~ ${period.to || "끝"}` : "전체 기간";
+  if (periodBad()) $("periodBox").open = true;
 
   const loaded = state.records.length > 0;
-  const {byFile, records, worst, no, skipped, outside} = analyze();
+  const {byFile, records, worst, no, skipped, outside, noRef, refMissing} = analyze();
   const has = records.length > 0;
   $("results").classList.toggle("hidden", !has);
   $("emptyMsg").classList.toggle("hidden", has);
-  $("emptyMsg").textContent = !loaded ? "아직 불러온 데이터가 없어요."
+  $("emptyMsg").textContent = !loaded ? (refOn() ? "기준 엑셀을 불러왔어요. 시스템 체크 엑셀을 넣어 주세요." : "아직 불러온 데이터가 없어요.")
     : periodBad() ? "시작일이 종료일보다 늦어요. 검토 기간을 다시 골라 주세요."
-    : "선택한 검토 기간에 해당하는 측정 건이 없어요.";
+    : periodOn() && !state.records.some(inPeriod) ? "선택한 검토 기간에 해당하는 측정 건이 없어요."
+    : "기준 엑셀과 날짜·대역·SAR Lab 이 같은 측정 건이 없어요.";
   $("download").disabled = !has;
-  $("clear").disabled = !loaded && !state.files.length && !state.warnings.length;
+  $("clear").disabled = !loaded && !state.files.length && !state.warnings.length && !state.refFiles.length;
+  // 오류(빨간색): 기준 엑셀에 날짜가 있는데 그 날짜·대역·Lab 의 시스템 체크가 없음 (시스템 체크 엑셀을 넣은 뒤에만)
+  const showErr = loaded && refMissing.length > 0;
+  $("refErr").classList.toggle("hidden", !showErr);
+  $("refErr").innerHTML = showErr
+    ? `<b>오류: 기준 엑셀에는 있지만 시스템 체크 데이터가 없어요 (${refMissing.length}건)</b><ul>`
+      + refMissing.map(x => `<li>${esc(`${x.date} · ${bandText(x.bands)} MHz${x.lab != null ? ` · SAR ${x.lab}` : ""}`)} — 시스템 체크 없음</li>`).join("")
+      + `</ul>` : "";
   if (!has) return;
 
   $("stats").innerHTML = [
@@ -478,8 +616,10 @@ function render(){
     [worst.filter(w => !w.fileWorst).length, "Serial 수"], [worst.filter(w => w.why.startsWith("1g 동률")).length, "10g 로 결정된 Serial"],
     ...(worst.some(w => w.fileWorst) ? [[worst.filter(w => w.fileWorst).length, "번호 없던 파일에 추가한 번호"]] : []),
     ...(periodOn() ? [[outside, "기간 밖이라 빠진 측정 건"]] : []),
+    ...(refOn() ? [[noRef, "기준 엑셀과 안 맞아 빠진 측정 건"]] : []),
+    ...(refMissing.length ? [[refMissing.length, "시스템 체크 없음 (오류, 위 빨간 목록)"]] : []),
   ].map(([n, l]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("")
-  + (skipped.length ? `<p class="tabinfo" style="flex-basis:100%;margin:2px 0 0">기간 안에 측정 건이 없어 시트를 만들지 않는 파일: ${skipped.map(esc).join(", ")}</p>` : "");
+  + (skipped.length ? `<p class="tabinfo" style="flex-basis:100%;margin:2px 0 0">${refOn() ? "기간·기준 엑셀에 맞는" : "기간 안에"} 측정 건이 없어 시트를 만들지 않는 파일: ${skipped.map(esc).join(", ")}</p>` : "");
 
   $("summary").innerHTML =
     `<tr><th>Plot No.</th><th>Serial #</th><th>Type</th><th>Date Tested</th><th>1g Delta (%)</th><th>10g Delta (%)</th><th>측정 횟수</th><th>비교 파일 수</th><th>선정 근거</th><th>원본</th></tr>` +
@@ -644,9 +784,12 @@ $("tabs").addEventListener("click", e => {
 $("download").addEventListener("click", e => runDownload(e.currentTarget));
 $("download2").addEventListener("click", e => runDownload(e.currentTarget));
 $("clear").addEventListener("click", () => {
-  Object.assign(state, {records: [], files: [], fileNames: [], warnings: [], seen: new Set(), tab: 0});
+  Object.assign(state, {records: [], files: [], fileNames: [], warnings: [], seen: new Set(), tab: 0, refs: [], refFiles: []});
   $("savedMsg").textContent = "";
   render();
+});
+$("refReset").addEventListener("click", () => {
+  state.refs = []; state.refFiles = []; $("savedMsg").textContent = ""; render();
 });
 if (!window.ExcelJS){
   state.warnings.push("ExcelJS 라이브러리를 불러오지 못했어요. 인터넷 연결을 확인하세요.");

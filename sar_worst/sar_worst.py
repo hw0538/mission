@@ -26,6 +26,10 @@ worst 기준
   python sar_worst.py a.xlsx b.xlsx        # 파일 지정
   python sar_worst.py input -o result.xlsx # 폴더 지정 + 출력 경로 지정
   python sar_worst.py --from 2024-02-27 --to 2024-05-01   # 검토 기간 지정 (두 날짜 포함)
+
+기준 엑셀 (System Check Date 표, 예: input/systemcheckdate.xlsx)
+  입력에 섞여 있으면 자동 인식 → 날짜·대역이 같은 측정 건만 정리.
+  측정 건에 'SAR 4' 처럼 Lab 이 적혀 있으면 Lab 번호도 같아야 함.
 """
 
 import argparse
@@ -41,6 +45,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 HERE = Path(__file__).resolve().parent
 WARN = []
+SHEET_WARN = []  # 한 파일을 읽는 동안의 시트 경고 (파일 전체에서 데이터를 못 찾았을 때만 WARN 으로 옮김)
 
 
 # ================================================================ 값 정리
@@ -123,6 +128,41 @@ def serial_key(s):
     return re.sub(r"\s", "", re.sub(r"\.0+$", "", text(s))).upper()
 
 
+# ---- 기준 엑셀(System Check Date)과 맞추기: 날짜 · 대역 · SAR Lab ----
+SYSTEM_BANDS = [13.5, 750, 835, 1750, 1900, 2300, 2450, 2600, 3500, 5250, 5600, 5750, 5800, 6000, 8000]
+
+
+def nearest_bands(f):
+    """가장 가까운 시스템 대역 (정확히 중간이면 둘 다)"""
+    d = min(abs(b - f) for b in SYSTEM_BANDS)
+    return [b for b in SYSTEM_BANDS if abs(abs(b - f) - d) < 1e-9]
+
+
+def bands_of(freq, typ):
+    """측정 건의 대역: Frequency 열 값 → 없으면 Type (D2450V2 → 2450, D5GHzV2 → 5 GHz 대역 전부)"""
+    if freq is not None and freq > 0:
+        return nearest_bands(freq)
+    m = re.match(r"D\s*(\d+(?:\.\d+)?)\s*GHz", text(typ), re.I)
+    if m:
+        g = float(m[1])
+        lo, hi = g * 1000, (int(g) + 1) * 1000
+        in_ghz = [b for b in SYSTEM_BANDS if lo <= b < hi]
+        return in_ghz or nearest_bands(lo)
+    m = re.match(r"D\s*(\d+(?:\.\d+)?)", text(typ), re.I)
+    return nearest_bands(float(m[1])) if m else []
+
+
+def lab_no(v, allow_bare=False):
+    """'SAR 4' / 'SAR4' / 'SAR-4' → 4 (allow_bare 이면 '4' 도 4)"""
+    t = text(v)
+    m = re.search(r"SAR\s*[-#.]?\s*(\d+)", t, re.I) or (re.fullmatch(r"(\d+)", t) if allow_bare else None)
+    return int(m[1]) if m else None
+
+
+def band_text(bs):
+    return "/".join(text(b) for b in bs)
+
+
 # ================================================================ 읽기
 
 def read_sheet(ws, file):
@@ -189,10 +229,14 @@ def read_sheet(ws, file):
             "norm": "normaliz" in h,
             "target": "target" in h,
             "liquid": "liquid" in h or re.search(r"\beli\b", h),
+            "freq": re.search(r"freq|mhz|ghz", h),
+            "lab": re.search(r"\blab\b|sar\s*system", h),
         }
         for k, ok in checks.items():
             if k not in col and ok:
                 col[k] = c
+                if k == "freq":
+                    col["freq_ghz"] = "ghz" in h and "mhz" not in h
         if "delta" in h:
             delta_cand.append(c)
     r1 = [s[0] for s in spans]
@@ -237,8 +281,8 @@ def read_sheet(ws, file):
             delta = alls[0]
     missing = [n for n, ok in (("날짜", col.get("date")), ("Type", col.get("type")),
                                ("Delta", delta and (delta["ok"] or delta_cand))) if not ok]
-    if missing:
-        WARN.append(f"{source}: {', '.join(missing)} 열을 찾지 못해 건너뜀")
+    if missing:  # 시스템 체크 표가 아닌 시트(Dipole 등): 파일 전체에서 데이터를 못 찾았을 때만 경고 (main 에서 판단)
+        SHEET_WARN.append(f"{source}: {', '.join(missing)} 열을 찾지 못해 건너뜀")
         return []
     col["delta"] = delta["c"]
     if delta["pair"]:
@@ -263,6 +307,16 @@ def read_sheet(ws, file):
              "liquid": text(get(s[0], col.get("liquid"))), "g1": vals(s[0]), "g10": vals(rt),
              # 1g·8g·10g·APD… 원본 순서 그대로 (결과에 모두 표시)
              "rows": [{"lab": text(get(x, label_col)), **vals(x)} for x in range(s[0], s[1] + 1)]}
+        # 대역(기준 엑셀 비교용): Frequency 열 → 없으면 Type
+        fv = num(get(s[0], col.get("freq")))
+        b["bands"] = bands_of(None if fv is None else (fv * 1000 if col.get("freq_ghz") else fv), b["type"])
+        # SAR Lab: Lab/SAR System 열 → 없으면 측정 건 안에서 'SAR 4' 같은 글자 (원본 Plot 칸 등)
+        b["lab"] = lab_no(get(s[0], col["lab"]), True) if col.get("lab") else None
+        for x in range(s[0], s[1] + 1):
+            for c in range(1, max_c + 1):
+                if b["lab"] is None and c not in (label_col, col["type"]) \
+                        and re.fullmatch(r"SAR\s*[-#.]?\s*\d+", text(get(x, c)), re.I):
+                    b["lab"] = lab_no(get(x, c))
         if not b["type"]:
             WARN.append(f"{source} {s[0]}행: Type 이 비어 있어 건너뜀")
             continue
@@ -272,12 +326,61 @@ def read_sheet(ws, file):
         elif not b["serial"]:
             WARN.append(f"{source} {s[0]}행: Serial 이 비어 있어 worst 판정에서 제외 (표에는 표시)")
         if b["g1"]["delta"] is None or b["g10"]["delta"] is None:
-            WARN.append(f"{source} {s[0]}행: Delta 값을 구할 수 없어 건너뜀")
-            continue
+            continue  # 값이 비어 있는 행(빈 양식 줄)은 조용히 건너뜀
         b["d1"], b["d10"] = b["g1"]["delta"], b["g10"]["delta"]
         b["sig"] = json.dumps([date_key(b), band_key(b["type"]), b["serial"], b["rows"]])
         out.append(b)
     return out
+
+
+def read_ref(wb, file):
+    """기준 엑셀: 'System Check Date' 헤더가 있는 표 (test_date 도구 결과 systemcheckdate.xlsx 등).
+    헤더 행에서 날짜·대역(MHz/대역/Band/Freq)·SAR Lab 열을 찾음. 표가 없으면 None"""
+    found, rows = False, []
+    for ws in wb.worksheets:
+        master = {}
+        for m in ws.merged_cells.ranges:
+            for r in range(m.min_row, m.max_row + 1):
+                for c in range(m.min_col, m.max_col + 1):
+                    master[(r, c)] = (m.min_row, m.min_col)
+
+        def get(r, c):
+            rr, cc = master.get((r, c), (r, c))
+            return ws.cell(rr, cc).value
+
+        max_r, max_c = ws.max_row, ws.max_column
+        for hr in range(1, min(max_r, 30) + 1):
+            dc = bc = lc = None
+            for c in range(1, max_c + 1):
+                h = low(get(hr, c))
+                if not dc and "system check date" in h:
+                    dc = c
+                elif not bc and re.search(r"mhz|대역|band|freq", h):
+                    bc = c
+                elif not lc and re.search(r"\blab\b", h):
+                    lc = c
+            if not dc or not bc:
+                continue
+            found = True
+            for r in range(hr + 1, max_r + 1):
+                d = parse_date(get(r, dc))
+                if not d:
+                    continue
+                bands = []
+                for x in re.findall(r"\d+(?:\.\d+)?", text(get(r, bc))):
+                    bands += [b for b in nearest_bands(float(x)) if b not in bands]
+                if bands:
+                    rows.append({"file": file, "date": d, "bands": bands,
+                                 "lab": lab_no(get(r, lc), True) if lc else None})
+            break
+    return rows if found else None
+
+
+def ref_hit(x, b):
+    """같은 날짜 + 같은 대역 + (측정 건에 'SAR 4' 가 있으면) 같은 Lab 번호"""
+    return (x["date"] == b["date"]
+            and (not b["bands"] or any(v in b["bands"] for v in x["bands"]))
+            and (b["lab"] is None or x["lab"] is None or x["lab"] == b["lab"]))
 
 
 def collect_files(paths):
@@ -516,9 +619,9 @@ def main():
     if not files:
         sys.exit("읽을 엑셀 파일이 없습니다. input 폴더에 넣거나 파일 경로를 지정하세요.")
 
-    records, seen, file_names = [], set(), []
+    records, seen, file_names, refs, ref_files = [], set(), [], [], []
     for f in files:
-        if f.name in file_names:
+        if f.name in file_names or f.name in ref_files:
             WARN.append(f"{f.name}: 이미 불러온 파일이라 건너뛰었어요")
             continue
         print(f"읽는 중: {f.name}")
@@ -527,7 +630,19 @@ def main():
         except Exception as e:  # noqa: BLE001
             WARN.append(f"{f.name}: 파일을 열 수 없어요 ({e})")
             continue
+        SHEET_WARN.clear()
         recs = [b for ws in wb.worksheets for b in read_sheet(ws, f.name)]
+        if not recs:
+            WARN.extend(SHEET_WARN)
+        # 시스템 체크 데이터가 없고 'System Check Date' 표가 있으면 → 기준 엑셀
+        ref = None if recs else read_ref(wb, f.name)
+        if ref is not None:
+            refs += ref
+            ref_files.append(f.name)
+            print(f"  · 기준 엑셀: {f.name} ({len(ref)}건)")
+            if not ref:
+                WARN.append(f"{f.name}: 기준 엑셀(System Check Date)에 날짜·대역이 있는 행이 없어요")
+            continue
         if not recs:
             WARN.append(f"{f.name}: 시스템 체크 데이터를 찾지 못했어요 ('1g' 행과 날짜·Type·Delta 열 확인)")
             continue
@@ -546,6 +661,7 @@ def main():
         print("  ! " + w)
     if not records:
         sys.exit("시스템 체크 데이터를 찾지 못했습니다.")
+    all_records = records
 
     # 검토 기간: 기간 밖(과 날짜를 못 읽은) 측정 건은 비교·시트에서 모두 뺌
     if period_on:
@@ -559,6 +675,29 @@ def main():
         skipped = [n for n in file_names if not any(b["file"] == n for b in records)]
         if skipped:
             print(f"  · 기간 안에 측정 건이 없어 시트를 만들지 않는 파일: {', '.join(skipped)}")
+        file_names = [n for n in file_names if n not in skipped]
+
+    # 기준 엑셀: 같은 날짜·대역(·SAR Lab) 행이 있는 측정 건만 비교·시트에 넣음
+    if refs:
+        in_p = len(records)
+        records = [b for b in records if b["date"] and any(ref_hit(x, b) for x in refs)]
+        print(f"  · 기준 엑셀({', '.join(ref_files)}) 비교 → {in_p}건 중 {len(records)}건 사용, "
+              f"{in_p - len(records)}건은 날짜·대역·SAR Lab 이 안 맞아 뺌")
+        missing = [x for x in refs
+                   if (not args.date_from or x["date"] >= args.date_from)
+                   and (not args.date_to or x["date"] <= args.date_to)
+                   and not any(b["date"] and ref_hit(x, b) for b in all_records)]
+        if missing:  # 오류(빨간색): 기준 엑셀에 날짜가 있는데 그 날짜·대역·Lab 의 시스템 체크가 없음
+            red, end = ("\033[91m", "\033[0m") if sys.stdout.isatty() else ("", "")
+            print(f"{red}  [오류] 기준 엑셀에는 있지만 시스템 체크 데이터가 없어요 ({len(missing)}건){end}")
+            for x in missing:
+                print(f"{red}    - {x['date']} · {band_text(x['bands'])} MHz"
+                      + (f" · SAR {x['lab']}" if x["lab"] is not None else "") + f" — 시스템 체크 없음{end}")
+        if not records:
+            sys.exit("기준 엑셀과 날짜·대역·SAR Lab 이 같은 측정 건이 없어요.")
+        skipped = [n for n in file_names if not any(b["file"] == n for b in records)]
+        if skipped:
+            print(f"  · 기준 엑셀에 맞는 측정 건이 없어 시트를 만들지 않는 파일: {', '.join(skipped)}")
         file_names = [n for n in file_names if n not in skipped]
 
     by_file, uniq, worst, no = analyze(records, file_names)
