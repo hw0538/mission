@@ -1,6 +1,6 @@
 """SAR System Check worst 선정 도구 (sar_worst.html 과 같은 로직).
 
-시스템 체크 엑셀(들)을 읽어 정해진 양식의 새 엑셀을 만들고,
+시스템 체크 엑셀(들)을 읽어 파일마다 정해진 양식의 시트로 정리한 새 엑셀을 만들고,
 Serial 번호가 같은 측정 건끼리 비교해 worst 의 Plot No. 칸에 번호를 붙인다.
 
 결과 양식 (측정 건마다 1g·10g 줄, 원본에 8g·APD 가 있으면 그 줄도 같은 양식으로 추가, 날짜는 yyyy-mm-dd)
@@ -10,7 +10,8 @@ Serial 번호가 같은 측정 건끼리 비교해 worst 의 Plot No. 칸에 번
 읽을 수 있는 원본
   - 측정 건 = '1g' 행부터 라벨(8g/10g/APD…)이 이어지는 행까지 → 2줄·4줄 양식 모두 가능
   - 열은 헤더 이름으로 찾고, Delta 는 (A-B)/B*100 계산이 맞는 열로 찾음
-  - 여러 파일·양식이 섞여도 하나의 표로 모으고, worst 는 전체를 합쳐서 Serial 별로 판정
+  - 엑셀은 합치지 않고 파일마다 결과 시트를 하나씩 만들고, worst 는 모든 파일의 데이터 값을 비교해 Serial 별로 판정
+    (여러 파일에 같은 측정 건이 있으면 각 시트에는 표시, 비교는 한 번만)
     (Serial 은 대소문자·공백 무시, 비어 있으면 판정 제외)
 
 worst 기준
@@ -18,12 +19,13 @@ worst 기준
   2) 1g 가 동률이면 |10g Delta %| 가 큰 데이터
   3) 둘 다 동률이면 먼저 측정된 데이터 + 동률 메모
   (표에 보이는 소수 둘째 자리 기준, 부호 무시)
+  4) 정리 후 번호가 하나도 없는 파일은 그 파일 전체(Serial 무관)에서 worst 하나를 골라 번호 추가
 
 사용법
   python sar_worst.py                      # ./input 폴더의 엑셀 전부 → ./output/SystemCheck_Worst.xlsx
   python sar_worst.py a.xlsx b.xlsx        # 파일 지정
   python sar_worst.py input -o result.xlsx # 폴더 지정 + 출력 경로 지정
-  python sar_worst.py --order freq         # 번호를 주파수 오름차순으로
+  python sar_worst.py --from 2024-02-27 --to 2024-05-01   # 검토 기간 지정 (두 날짜 포함)
 """
 
 import argparse
@@ -108,18 +110,17 @@ def band_key(t):
     return re.sub(r"[\s\-_]", "", text(t)).upper()
 
 
+def iso_date(s):
+    """명령줄 날짜 인자 'YYYY-MM-DD' → date"""
+    try:
+        return dt.datetime.strptime(s.strip(), "%Y-%m-%d").date()
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"날짜는 YYYY-MM-DD 형식이어야 해요: {s}")
+
+
 def serial_key(s):
     """Serial 비교용: 대소문자·공백 무시 (4d174 = 4D174), 숫자로 저장된 1205.0 → 1205"""
     return re.sub(r"\s", "", re.sub(r"\.0+$", "", text(s))).upper()
-
-
-def freq_of(t):
-    s = t.upper()
-    m = re.search(r"(\d+(?:\.\d+)?)\s*GHZ", s)
-    if m:
-        return float(m[1]) * 1000
-    m = re.search(r"(\d+(?:\.\d+)?)", s)
-    return float(m[1]) if m else float("inf")
 
 
 # ================================================================ 읽기
@@ -294,9 +295,63 @@ def collect_files(paths):
 
 # ================================================================ worst 선정
 
-def analyze(records, order):
-    records = sorted(records, key=date_key)  # 안정 정렬: 같은 날은 읽은 순서
-    pos = {id(b): i for i, b in enumerate(records)}
+def sheet_names(names):
+    """엑셀 시트 이름 규칙: 31자 이하, [ ] : * ? / 역슬래시 사용 불가, 중복 불가"""
+    used, out = {"worst summary"}, {}
+    for n in names:
+        base = re.sub(r"\.(xlsx|xlsm)$", "", n, flags=re.I)
+        base = re.sub(r"[\[\]:*?/\\]", "_", base).strip("'").strip() or "Sheet"
+        base = base[:31]
+        name, k = base, 2
+        while name.lower() in used:
+            suf = f" ({k})"
+            name, k = base[:31 - len(suf)] + suf, k + 1
+        used.add(name.lower())
+        out[n] = name
+    return out
+
+
+def file_numbers(name):
+    return [int(x) for x in re.findall(r"\d+", re.sub(r"\.(xlsx|xlsm)$", "", name, flags=re.I))]
+
+
+def sort_files(names):
+    """파일 순서: 파일 이름에 번호가 있으면 그 번호 순서대로.
+    - 이름에서 처음 나오는 숫자로 비교 (3_A, 1_B, 2_C → 1_B, 2_C, 3_A / A_3, B_1, C_2 → B_1, C_2, A_3)
+    - 처음 숫자가 같으면 이어지는 숫자까지 비교 (SC_2024-02-26 < SC_2024-03-05)
+    - 번호가 없는 파일은 뒤에, 불러온 순서대로"""
+    numbered = [(file_numbers(n), n, i) for i, n in enumerate(names) if file_numbers(n)]
+    plain = [n for n in names if not file_numbers(n)]
+    width = max((len(x[0]) for x in numbered), default=0)
+    numbered.sort(key=lambda x: (x[0] + [-1] * (width - len(x[0])), x[1], x[2]))
+    return [n for _, n, _ in numbered] + plain
+
+
+def analyze(all_records, file_names):
+    """all_records: 모든 파일의 측정 건 (파일 간 중복 포함).
+    반환: (파일별 표, 비교에 쓴 측정 건, worst 목록, sig→worst)"""
+    file_names = sort_files(file_names)  # 파일 이름의 번호 순서 → 시트 순서·넘버링 순서
+    names = sheet_names(file_names)
+    idx = {id(b): i for i, b in enumerate(all_records)}
+    # 1) 파일별 표 (엑셀은 합치지 않음). 파일 안에서는 날짜순
+    by_file = [{"name": n, "sheet": names[n],
+                # 시트 이름 규칙(31자·금지 문자·중복) 때문에 파일 이름(확장자 제외)과 달라졌는지
+                "renamed": names[n] != re.sub(r"\.(xlsx|xlsm)$", "", n, flags=re.I),
+                "records": sorted((b for b in all_records if b["file"] == n), key=lambda b: (date_key(b), idx[id(b)]))}
+               for n in file_names]
+    # 표 순서: 파일 순서 → 파일 안 위→아래
+    pos = {}
+    for f in by_file:
+        for b in f["records"]:
+            pos.setdefault(b["sig"], len(pos))
+    # 2) worst 비교용: 모든 파일의 측정 건, 같은 측정 건은 한 번만
+    seen, records = set(), []
+    for f in by_file:
+        for b in f["records"]:
+            if b["sig"] not in seen:
+                seen.add(b["sig"])
+                records.append(b)
+    records.sort(key=lambda b: (date_key(b), pos[b["sig"]]))
     # Serial 번호가 같은 것끼리 묶어서 worst 선정
     groups = {}
     for b in records:
@@ -315,17 +370,35 @@ def analyze(records, order):
         why = ("1g·10g 완전 동률 → 먼저 측정된 데이터" if tied else
                "1g 동률 → 10g 로 결정" if same1g else
                "측정 1회" if len(recs) == 1 else "1g 최대")
+        n_files = len({b["file"] for b in all_records if serial_key(b["serial"]) == serial})
         worst.append({"serial": serial, "rec": best, "tied": tied, "count": len(recs),
-                      "n_files": len({x["file"] for x in recs}), "why": why})
-    if order == "freq":
-        worst.sort(key=lambda w: (freq_of(w["rec"]["type"]), w["serial"]))
-    else:
-        worst.sort(key=lambda w: pos[id(w["rec"])])
+                      "n_files": n_files, "why": why})
+    # 정리 후 번호가 하나도 없는 파일(시트) → 그 파일 전체(Serial 무관)에서 worst 하나를 골라 번호 추가
+    marked = {w["rec"]["sig"] for w in worst}
+    for f in by_file:
+        recs = f["records"]
+        if any(b["sig"] in marked for b in recs):
+            continue
+        best = recs[0]  # 파일 안은 날짜순 → 완전 동률이면 먼저 측정된 것
+        for x in recs:
+            if (r2(x["d1"]), r2(x["d10"])) > (r2(best["d1"]), r2(best["d10"])):
+                best = x
+        key = (r2(best["d1"]), r2(best["d10"]))
+        tied = [x for x in recs if x is not best and x["sig"] != best["sig"] and (r2(x["d1"]), r2(x["d10"])) == key]
+        same1g = [x for x in recs if x is not best and x["sig"] != best["sig"] and r2(x["d1"]) == key[0]]
+        why = "번호 없는 파일 → 파일 전체 worst" + (
+            " (1g·10g 완전 동률 → 먼저 측정된 데이터)" if tied else " (1g 동률 → 10g 로 결정)" if same1g else "")
+        worst.append({"serial": serial_key(best["serial"]), "rec": best, "tied": tied, "count": len(recs),
+                      "n_files": 1, "why": why, "file_worst": True})
+        marked.add(best["sig"])
+    # 넘버링 순서 고정: 파일 번호 순서 → 각 시트 안 위→아래
+    worst.sort(key=lambda w: pos[w["rec"]["sig"]])
+    # 번호는 측정 건(sig) 기준 → 같은 측정 건이 여러 파일 시트에 있으면 모두 같은 번호
     no = {}
     for k, w in enumerate(worst, 1):
         w["no"] = k
-        no[id(w["rec"])] = w
-    return records, worst, no
+        no[w["rec"]["sig"]] = w
+    return by_file, records, worst, no
 
 
 # ================================================================ 쓰기 (사진 양식)
@@ -351,20 +424,29 @@ def box(ws, rng, value=None, font=FONT, fill=None, fmt=None):
     ws[rng.split(":")[0]].value = value
 
 
-def write_main(ws, records, no):
-    for rng, v in [("A1:A2", "Date Tested"), ("B1:C1", "System Dipole"), ("B2", "Type"), ("C2", "Serial #"),
-                   ("D1:E2", "T.S.\nLiquid"), ("F1:G1", "Measured Results"),
-                   ("F2", "Zoom Scan to\n100 mW"), ("G2", "Normalize\nto 1 W"),
-                   ("H1:H2", "Target\n(Ref. Value)"), ("I1:I2", "Delta\n±10 %"), ("J1:J2", "Plot No.")]:
+def write_main(ws, records, no, source_name=None):
+    """source_name 이 있으면(시트 이름이 파일 이름과 달라진 경우) 표 위에 원본 파일 이름 한 줄"""
+    o = 1 if source_name else 0
+    if o:
+        ws.merge_cells("A1:J1")
+        ws["A1"].value = f"원본 파일: {source_name}"
+        ws["A1"].font = BOLD
+        ws["A1"].alignment = Alignment(horizontal="left", vertical="center")
+        ws.row_dimensions[1].height = 20
+    h1, h2 = 1 + o, 2 + o
+    for rng, v in [(f"A{h1}:A{h2}", "Date Tested"), (f"B{h1}:C{h1}", "System Dipole"), (f"B{h2}", "Type"),
+                   (f"C{h2}", "Serial #"), (f"D{h1}:E{h2}", "T.S.\nLiquid"), (f"F{h1}:G{h1}", "Measured Results"),
+                   (f"F{h2}", "Zoom Scan to\n100 mW"), (f"G{h2}", "Normalize\nto 1 W"),
+                   (f"H{h1}:H{h2}", "Target\n(Ref. Value)"), (f"I{h1}:I{h2}", "Delta\n±10 %"), (f"J{h1}:J{h2}", "Plot No.")]:
         box(ws, rng, v, fill=HEAD_FILL)
-    ws.row_dimensions[1].height = 20
-    ws.row_dimensions[2].height = 30
+    ws.row_dimensions[h1].height = 20
+    ws.row_dimensions[h2].height = 30
     for col, w in zip("ABCDEFGHIJ", (16, 13, 11, 9, 7, 12, 12, 12, 10, 12)):
         ws.column_dimensions[col].width = w
 
-    r = 3
+    r = h2 + 1
     for rec in records:
-        w = no.get(id(rec))
+        w = no.get(rec["sig"])
         n = len(rec["rows"])
 
         def span(col):
@@ -386,10 +468,10 @@ def write_main(ws, records, no):
             ws[f"J{r}"].comment = Comment("1g·10g Delta 완전 동률: " + ", ".join(fmt_date(x) for x in w["tied"])
                                           + " 데이터와 같음 (먼저 측정된 데이터 선택)", "sar_worst")
         r += n
-    ws.freeze_panes = "A3"
+    ws.freeze_panes = f"A{h2 + 1}"
 
 
-def write_summary(ws, worst):
+def write_summary(ws, worst, by_file):
     heads = ["Plot No.", "Serial #", "Type", "Date Tested", "1g Delta (%)", "10g Delta (%)",
              "측정 횟수", "비교 파일 수", "선정 근거", "원본"]
     for c, h in enumerate(heads, 1):
@@ -402,6 +484,17 @@ def write_summary(ws, worst):
             box(ws, ws.cell(i, c).coordinate, v, fmt="0.00" if c in (5, 6) else None)
     for col, w in zip("ABCDEFGHIJ", (9, 10, 12, 13, 12, 13, 10, 11, 30, 40)):
         ws.column_dimensions[col].width = w
+    # 시트 이름 ↔ 원본 파일 이름 대응표: Worst 표 아래 한 줄 띄우고, 넓은 I~L 열에
+    t0, c0 = len(worst) + 3, 9
+    for i, h in enumerate(["시트 이름", "원본 파일 이름", "측정 건수", "비고"]):
+        box(ws, ws.cell(t0, c0 + i).coordinate, h, font=BOLD, fill=HEAD_FILL)
+    for k, f in enumerate(by_file, 1):
+        vals = [f["sheet"], f["name"], len(f["records"]),
+                "시트 이름 규칙(31자·금지 문자·중복) 때문에 바뀜" if f["renamed"] else None]
+        for i, v in enumerate(vals):
+            box(ws, ws.cell(t0 + k, c0 + i).coordinate, v)
+    ws.column_dimensions["K"].width = 10
+    ws.column_dimensions["L"].width = 40
     ws.freeze_panes = "A2"
 
 
@@ -410,54 +503,84 @@ def write_summary(ws, worst):
 def main():
     ap = argparse.ArgumentParser(description="SAR System Check Serial별 worst 넘버링")
     ap.add_argument("inputs", nargs="*", default=[str(HERE / "input")], help="엑셀 파일 또는 폴더")
-    ap.add_argument("-o", "--output", default=str(HERE / "output" / "SystemCheck_Worst.xlsx"))
-    ap.add_argument("--order", choices=["table", "freq"], default="table",
-                    help="번호 순서: table=표 순서(날짜순), freq=주파수 오름차순")
+    ap.add_argument("-o", "--output", default=None,
+                    help="출력 경로 (기본: output/SystemCheck_Worst[_시작일~종료일].xlsx)")
+    ap.add_argument("--from", dest="date_from", type=iso_date, help="검토 시작일 YYYY-MM-DD (포함)")
+    ap.add_argument("--to", dest="date_to", type=iso_date, help="검토 종료일 YYYY-MM-DD (포함)")
     args = ap.parse_args()
+    if args.date_from and args.date_to and args.date_from > args.date_to:
+        sys.exit("시작일이 종료일보다 늦어요. --from / --to 를 확인하세요.")
+    period_on = bool(args.date_from or args.date_to)
 
     files = collect_files(args.inputs)
     if not files:
         sys.exit("읽을 엑셀 파일이 없습니다. input 폴더에 넣거나 파일 경로를 지정하세요.")
 
-    records, seen = [], set()
+    records, seen, file_names = [], set(), []
     for f in files:
+        if f.name in file_names:
+            WARN.append(f"{f.name}: 이미 불러온 파일이라 건너뛰었어요")
+            continue
         print(f"읽는 중: {f.name}")
         try:
             wb = load_workbook(f, data_only=True)
         except Exception as e:  # noqa: BLE001
             WARN.append(f"{f.name}: 파일을 열 수 없어요 ({e})")
             continue
-        added = dup = 0
-        for ws in wb.worksheets:
-            for b in read_sheet(ws, f.name):
-                if b["sig"] in seen:
-                    dup += 1
-                    continue
-                seen.add(b["sig"])
-                records.append(b)
-                added += 1
-        if not added and not dup:
+        recs = [b for ws in wb.worksheets for b in read_sheet(ws, f.name)]
+        if not recs:
             WARN.append(f"{f.name}: 시스템 체크 데이터를 찾지 못했어요 ('1g' 행과 날짜·Type·Delta 열 확인)")
+            continue
+        # 파일은 합치지 않음: 파일 간 중복 측정 건도 그 파일 시트에 그대로 표시하고, worst 비교 때만 한 번으로 셈
+        dup = 0
+        for b in recs:
+            if b["sig"] in seen:
+                dup += 1
+            seen.add(b["sig"])
+            records.append(b)
         if dup:
-            WARN.append(f"{f.name}: 이미 불러온 데이터와 같은 {dup}건은 한 번만 반영했어요")
+            WARN.append(f"{f.name}: 다른 파일과 같은 측정 건 {dup}건은 이 파일 시트에는 표시하고, worst 비교에서는 한 번만 셌어요")
+        file_names.append(f.name)
 
     for w in WARN:
         print("  ! " + w)
     if not records:
         sys.exit("시스템 체크 데이터를 찾지 못했습니다.")
 
-    records, worst, no = analyze(records, args.order)
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "System Check"
-    write_main(ws, records, no)
-    write_summary(wb.create_sheet("Worst Summary"), worst)
+    # 검토 기간: 기간 밖(과 날짜를 못 읽은) 측정 건은 비교·시트에서 모두 뺌
+    if period_on:
+        total = len(records)
+        records = [b for b in records if b["date"]
+                   and (not args.date_from or b["date"] >= args.date_from)
+                   and (not args.date_to or b["date"] <= args.date_to)]
+        print(f"  · 검토 기간 {args.date_from or '처음'} ~ {args.date_to or '끝'} → {total}건 중 {len(records)}건 사용")
+        if not records:
+            sys.exit("선택한 검토 기간에 해당하는 측정 건이 없어요.")
+        skipped = [n for n in file_names if not any(b["file"] == n for b in records)]
+        if skipped:
+            print(f"  · 기간 안에 측정 건이 없어 시트를 만들지 않는 파일: {', '.join(skipped)}")
+        file_names = [n for n in file_names if n not in skipped]
 
-    out = Path(args.output)
+    by_file, uniq, worst, no = analyze(records, file_names)
+    wb = Workbook()
+    wb.remove(wb.active)
+    for f in by_file:  # 파일 하나 = 시트 하나
+        write_main(wb.create_sheet(f["sheet"]), f["records"], no, f["name"] if f["renamed"] else None)
+        print(f"  · 시트 '{f['sheet']}': {f['name']} 측정 {len(f['records'])}건, "
+              f"worst 번호 {sum(1 for b in f['records'] if b['sig'] in no)}개")
+    write_summary(wb.create_sheet("Worst Summary"), worst, by_file)
+
+    if args.output:
+        out = Path(args.output)
+    else:
+        label = f"_{args.date_from or '처음'}~{args.date_to or '끝'}" if period_on else ""
+        out = HERE / "output" / f"SystemCheck_Worst{label}.xlsx"
     out.parent.mkdir(parents=True, exist_ok=True)
     wb.save(out)
 
-    print(f"\n파일 {len(files)}개의 데이터 {len(records)}건을 합쳐서 비교 → Serial {len(worst)}개")
+    n_fw = sum(1 for w in worst if w.get("file_worst"))
+    print(f"\n파일 {len(by_file)}개(파일별 시트)의 측정 {len(uniq)}건(중복 제외)을 비교 → Serial {len(worst) - n_fw}개"
+          + (f" + 번호 없던 파일에 파일 전체 worst {n_fw}개" if n_fw else ""))
     for w in worst:
         rec = w["rec"]
         print(f"  Plot {w['no']:>2}: Serial {rec['serial']:<8} {rec['type']:<11} {fmt_date(rec):<10} "

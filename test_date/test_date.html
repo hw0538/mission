@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test Date</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<style>
+:root{
+  --bg:#f6f5f1; --panel:#ffffff; --ink:#1d1d1b; --muted:#6b6a64; --line:#d9d6cc;
+  --head:#d8cfb0; --head-ink:#1d1d1b; --accent:#2f5d8a; --accent-ink:#ffffff;
+  --warn:#a34b1f; --drop:#eeebe2;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1a1a18; --panel:#24241f; --ink:#ecebe6; --muted:#a3a29a; --line:#3c3b35;
+    --head:#5a523a; --head-ink:#f3efe2; --accent:#6fa3d6; --accent-ink:#10161c;
+    --warn:#f0a07a; --drop:#2c2c27;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1a1a18; --panel:#24241f; --ink:#ecebe6; --muted:#a3a29a; --line:#3c3b35;
+  --head:#5a523a; --head-ink:#f3efe2; --accent:#6fa3d6; --accent-ink:#10161c;
+  --warn:#f0a07a; --drop:#2c2c27;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif}
+main{max-width:1180px;margin:0 auto;padding:28px 16px 60px}
+h1{font-size:22px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 22px}
+h2{font-size:15px;margin:28px 0 10px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+#drop{border:2px dashed var(--line);background:var(--drop);border-radius:10px;padding:28px 16px;text-align:center;cursor:pointer;transition:border-color .15s}
+#drop.over{border-color:var(--accent)}
+#drop b{display:block;font-size:15px;margin-bottom:4px}
+#drop span{color:var(--muted)}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px}
+.bar .grow{flex:1}
+button{font:inherit;border-radius:7px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:7px 12px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button:disabled{opacity:.45;cursor:default}
+.files{margin:12px 0 0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:6px}
+.files li{border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--muted)}
+.warn{color:var(--warn)}
+#result:empty::before{content:"아직 결과가 없습니다.";color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+  <h1>Test Date</h1>
+  <p class="sub">TODO: 도구 설명 한 줄</p>
+
+  <section class="panel">
+    <div id="drop" tabindex="0">
+      <b>엑셀 파일을 여기에 끌어다 놓으세요</b>
+      <span>또는 클릭해서 선택 (.xlsx, .xlsm)</span>
+      <input id="file" type="file" accept=".xlsx,.xlsm" multiple hidden>
+    </div>
+    <ul class="files" id="files"></ul>
+    <div class="bar">
+      <span class="grow" id="msg"></span>
+      <button id="clear" disabled>초기화</button>
+      <button id="run" class="primary" disabled>실행</button>
+    </div>
+  </section>
+
+  <h2>결과</h2>
+  <section class="panel" id="result"></section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const state = { files: [] };
+
+function render(){
+  $('files').innerHTML = state.files.map(f => `<li>${f.name}</li>`).join('');
+  $('run').disabled = $('clear').disabled = state.files.length === 0;
+}
+
+function addFiles(list){
+  for (const f of list){
+    if (!/\.(xlsx|xlsm)$/i.test(f.name)){
+      $('msg').innerHTML = `<span class="warn">.xlsx/.xlsm 파일만 읽을 수 있어요: ${f.name}</span>`;
+      continue;
+    }
+    if (!state.files.some(x => x.name === f.name)) state.files.push(f);
+  }
+  render();
+}
+
+const drop = $('drop');
+drop.addEventListener('click', () => $('file').click());
+drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') $('file').click(); });
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); addFiles(e.dataTransfer.files); });
+$('file').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
+$('clear').addEventListener('click', () => { state.files = []; $('msg').textContent = ''; $('result').innerHTML = ''; render(); });
+
+$('run').addEventListener('click', async () => {
+  // TODO: 처리 로직
+  $('msg').textContent = `${state.files.length}개 파일 — 처리 로직은 아직 없습니다.`;
+});
+</script>
+</body>
+</html>

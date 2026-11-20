@@ -56,16 +56,33 @@ td.left{text-align:left}
 .sheet th,.sheet td{border:1px solid #333;padding:2px 8px;font-weight:400}
 .sheet th{background:#d8cfb0;color:#111;line-height:1.25}
 .sheet td.num{font-weight:700;outline:2px solid var(--mark);outline-offset:-2px}
+/* 파일별 탭 */
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.tabs button{font-size:13px;padding:5px 12px;border-radius:999px}
+.tabs button[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.tabinfo{color:var(--muted);font-size:13px;margin:0 0 8px}
+.saved{color:var(--muted);font-size:13px}
 .warn{color:var(--warn);font-size:13px;margin:6px 0 0;padding-left:18px}
 .empty{color:var(--muted);text-align:center;padding:26px}
-.rule{font-size:13px;color:var(--muted);margin:10px 0 0}
+/* 판정 규칙 (맨 아래, 접기) */
+.rules{margin-top:32px;border-top:1px solid var(--line);padding-top:12px;font-size:13px;color:var(--muted)}
+.rules summary{cursor:pointer;font-weight:600;color:var(--ink);width:max-content;padding:4px 0}
+.rules summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.rules ul{margin:8px 0 0;padding-left:18px;line-height:1.7}
 .hidden{display:none}
+/* 검토 기간 */
+.period{margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center}
+.period .lbl{font-weight:600}
+.period input[type=date]{font:inherit;border-radius:7px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:6px 8px;color-scheme:light dark}
+.period .hint{color:var(--muted);font-size:12px}
+.period .err{color:var(--warn);font-size:13px;flex-basis:100%}
+.period .err:empty{display:none}
 </style>
 </head>
 <body>
 <main>
   <h1>SAR System Check · Serial별 Worst 선정</h1>
-  <p class="sub">시스템 체크 엑셀을 넣으면 정해진 양식으로 모아서 정리하고, Serial 번호가 같은 측정 건끼리 비교해 worst 의 Plot No. 칸에 번호를 붙입니다. 파일은 브라우저 안에서만 처리돼요.</p>
+  <p class="sub">시스템 체크 엑셀을 넣으면 파일마다 정해진 양식으로 정리하고(파일별 시트), 모든 파일의 데이터 중 Serial 번호가 같은 측정 건끼리 비교해 worst 의 Plot No. 칸에 번호를 붙입니다. 파일은 브라우저 안에서만 처리돼요.</p>
 
   <section class="panel">
     <div id="drop">
@@ -74,39 +91,59 @@ td.left{text-align:left}
       <input id="pick" type="file" accept=".xlsx,.xlsm" multiple hidden>
     </div>
     <ul class="files" id="fileList"></ul>
+    <div class="period">
+      <span class="lbl">검토 기간</span>
+      <input type="date" id="from" aria-label="시작일 (YYYY-MM-DD)"> <span>~</span> <input type="date" id="to" aria-label="종료일 (YYYY-MM-DD)">
+      <button id="periodReset" type="button">전체 기간</button>
+      <span class="hint" id="dataRange">비워 두면 전체 기간을 검토해요.</span>
+      <span class="err" id="periodErr" role="alert"></span>
+    </div>
     <div class="bar">
-      <label>번호 순서
-        <select id="order">
-          <option value="table">표 순서 (날짜순, 위→아래)</option>
-          <option value="freq">주파수 오름차순</option>
-        </select>
-      </label>
       <span class="grow"></span>
       <button id="clear" disabled>초기화</button>
       <button id="download" class="primary" disabled>결과 엑셀 다운로드</button>
     </div>
-    <p class="rule">불러온 <b>모든 파일의 데이터를 합쳐서</b> Serial 번호가 같은 것끼리 하나의 worst를 고릅니다 (대소문자·공백 무시).<br>
-      Worst 기준: |1g Delta| 최대 → 1g 동률이면 |10g Delta| 최대 → 둘 다 동률이면 먼저 측정된 데이터 (소수 둘째 자리 기준, 부호 무시).<br>
-      결과 양식: Date Tested · Type · Serial # · T.S. Liquid · Zoom Scan · Normalize · Target · Delta · Plot No. (측정 건마다 1g·10g 줄, 원본에 8g·APD 가 있으면 그 줄도 같은 양식으로 추가, 날짜는 yyyy-mm-dd)</p>
     <ul class="warn" id="warnings"></ul>
   </section>
 
   <div id="results" class="hidden">
-    <h2>요약</h2>
+    <div class="bar" style="margin-top:24px">
+      <h2 style="margin:0">요약</h2>
+      <span class="grow"></span>
+      <span class="saved" id="savedMsg" role="status"></span>
+      <button id="download2" class="primary" type="button">결과 엑셀 다운로드</button>
+    </div>
+    <div style="height:10px"></div>
     <div class="stats" id="stats"></div>
 
     <h2>Serial별 Worst</h2>
     <div class="scroll"><table id="summary"></table></div>
 
-    <h2>결과 미리보기</h2>
+    <h2>결과 미리보기 (파일별 시트)</h2>
+    <div class="tabs" id="tabs" role="tablist"></div>
+    <p class="tabinfo" id="tabinfo"></p>
     <div class="scroll sheet"><table id="main"></table></div>
   </div>
   <div id="emptyMsg" class="panel empty" style="margin-top:20px">아직 불러온 데이터가 없어요.</div>
+
+  <!-- 판정 규칙: 화면 맨 아래, 기본은 접힘 -->
+  <details class="rules" id="rules">
+    <summary>판정 규칙 보기</summary>
+    <ul>
+      <li>엑셀은 <b>합치지 않고 파일별로 정리</b>하고(결과 엑셀에 파일마다 시트 하나), worst 는 <b>모든 파일의 데이터 값을 비교</b>해서 Serial 번호가 같은 것끼리 하나씩 고릅니다 (대소문자·공백 무시, 여러 파일에 같은 측정 건이 있으면 비교할 때 한 번만 셈).</li>
+      <li>검토 기간: 시작일 ~ 종료일(두 날짜 포함)을 고르면 그 기간의 측정 건만 비교하고 시트에 넣습니다. 비워 두면 전체 기간입니다. 기간 안에 측정 건이 없는 파일은 시트를 만들지 않습니다.</li>
+      <li>넘버링 순서: 파일 이름에 번호가 있으면 <b>그 번호 순서대로</b> 파일(시트)을 정렬하고, 첫 파일의 시트부터 위→아래로 Plot No.를 붙입니다 (번호 없는 파일은 뒤에).</li>
+      <li>번호 없는 시트: 정리 후 worst 번호가 하나도 없는 파일(시트)이 있으면, 그 파일 전체(Serial 무관)에서 같은 기준으로 worst 하나를 골라 번호를 붙입니다.</li>
+      <li>Worst 기준: |1g Delta| 최대 → 1g 동률이면 |10g Delta| 최대 → 둘 다 동률이면 먼저 측정된 데이터 (소수 둘째 자리 기준, 부호 무시).</li>
+      <li>결과 양식: Date Tested · Type · Serial # · T.S. Liquid · Zoom Scan · Normalize · Target · Delta · Plot No. (측정 건마다 1g·10g 줄, 원본에 8g·APD 가 있으면 그 줄도 같은 양식으로 추가, 날짜는 yyyy-mm-dd)</li>
+    </ul>
+  </details>
 </main>
 
 <script>
 "use strict";
-const state = { records: [], files: [], warnings: [], seen: new Set() };
+// records: 모든 파일의 측정 건(파일 간 중복도 그대로 보관), fileNames: 불러온 순서, tab: 미리보기에서 고른 파일
+const state = { records: [], files: [], fileNames: [], warnings: [], seen: new Set(), tab: 0 };
 const $ = id => document.getElementById(id);
 
 /* ============================================================ 값 정리 */
@@ -154,13 +191,6 @@ const fx = (x, d) => x == null ? "" : x.toFixed(d);
 const bandKey = t => text(t).toUpperCase().replace(/[\s\-_]/g, "");
 // Serial 비교용: 대소문자·공백 무시 (4d174 = 4D174), 숫자로 저장된 1205.0 → 1205
 const serialKey = s => text(s).replace(/\.0+$/, "").toUpperCase().replace(/\s/g, "");
-function freqOf(type){
-  const s = type.toUpperCase();
-  let m = s.match(/(\d+(?:\.\d+)?)\s*GHZ/);
-  if (m) return parseFloat(m[1]) * 1000;
-  m = s.match(/(\d+(?:\.\d+)?)/);
-  return m ? parseFloat(m[1]) : Infinity;
-}
 
 /* ============================================================ 읽기
    측정 건(block) = '1g' 행부터 라벨(8g/10g/APD…)이 이어지는 행까지 → 2줄·4줄 양식 모두 지원.
@@ -275,23 +305,34 @@ function readSheet(ws, file){
 }
 
 async function addFiles(fileList){
+  $("savedMsg").textContent = "";
   for (const f of fileList){
     if (!/\.(xlsx|xlsm)$/i.test(f.name) || f.name.startsWith("~$")){
       state.warnings.push(`${f.name}: .xlsx/.xlsm 파일만 읽을 수 있어요 (.xls 는 엑셀에서 .xlsx 로 저장 후 사용)`); continue;
     }
+    if (state.fileNames.includes(f.name)){
+      state.warnings.push(`${f.name}: 이미 불러온 파일이라 건너뛰었어요`); continue;
+    }
     try{
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(await f.arrayBuffer());
-      let added = 0, dup = 0;
-      wb.eachSheet(ws => {
-        for (const b of readSheet(ws, f.name)){
-          if (state.seen.has(b.sig)){ dup++; continue; }
-          state.seen.add(b.sig); state.records.push(b); added++;
-        }
-      });
-      if (!added && !dup) state.warnings.push(`${f.name}: 시스템 체크 데이터를 찾지 못했어요 ('1g' 행과 날짜·Type·Delta 열 확인)`);
-      if (dup) state.warnings.push(`${f.name}: 이미 불러온 데이터와 같은 ${dup}건은 한 번만 반영했어요`);
-      state.files.push(`${f.name} (${added}건)`);
+      const recs = [];
+      wb.eachSheet(ws => recs.push(...readSheet(ws, f.name)));
+      if (!recs.length){
+        state.warnings.push(`${f.name}: 시스템 체크 데이터를 찾지 못했어요 ('1g' 행과 날짜·Type·Delta 열 확인)`);
+        state.files.push(`${f.name} (0건)`);
+        continue;
+      }
+      // 파일은 합치지 않음: 파일 간 중복 측정 건도 그 파일 시트에 그대로 표시하고, worst 비교 때만 한 번으로 셈
+      let dup = 0;
+      for (const b of recs){
+        if (state.seen.has(b.sig)) dup++;
+        else state.seen.add(b.sig);
+        state.records.push(b);
+      }
+      if (dup) state.warnings.push(`${f.name}: 다른 파일과 같은 측정 건 ${dup}건은 이 파일 시트에는 표시하고, worst 비교에서는 한 번만 셌어요`);
+      state.fileNames.push(f.name);
+      state.files.push(`${f.name} (${recs.length}건)`);
     }catch(e){
       state.warnings.push(`${f.name}: 파일을 열 수 없어요 (${e.message})`);
     }
@@ -300,9 +341,69 @@ async function addFiles(fileList){
 }
 
 /* ============================================================ worst 선정 */
+// 엑셀 시트 이름 규칙: 31자 이하, [ ] : * ? / \ 사용 불가, 중복 불가
+function sheetNames(names){
+  const used = new Set(["worst summary"]), out = new Map();
+  for (const n of names){
+    let base = n.replace(/\.(xlsx|xlsm)$/i, "").replace(/[\[\]:*?\/\\]/g, "_").replace(/^'+|'+$/g, "").trim() || "Sheet";
+    base = base.slice(0, 31);
+    let name = base, k = 2;
+    while (used.has(name.toLowerCase())){ const suf = ` (${k++})`; name = base.slice(0, 31 - suf.length) + suf; }
+    used.add(name.toLowerCase()); out.set(n, name);
+  }
+  return out;
+}
+
+/* 파일 순서: 파일 이름에 번호가 있으면 그 번호 순서대로.
+   - 이름에서 처음 나오는 숫자로 비교 (3_A, 1_B, 2_C → 1_B, 2_C, 3_A / A_3, B_1, C_2 → B_1, C_2, A_3)
+   - 처음 숫자가 같으면 이어지는 숫자까지 비교 (SC_2024-02-26 < SC_2024-03-05)
+   - 번호가 없는 파일은 뒤에, 불러온 순서대로                                         */
+function fileNumbers(name){
+  return (name.replace(/\.(xlsx|xlsm)$/i, "").match(/\d+/g) || []).map(Number);
+}
+function sortFiles(names){
+  return names.map((n, i) => ({n, i, nums: fileNumbers(n)})).sort((a, b) => {
+    if (!a.nums.length || !b.nums.length) return (!a.nums.length) - (!b.nums.length) || a.i - b.i;
+    for (let k = 0; k < Math.max(a.nums.length, b.nums.length); k++){
+      const x = a.nums[k] ?? -1, y = b.nums[k] ?? -1;
+      if (x !== y) return x - y;
+    }
+    return (a.n < b.n ? -1 : a.n > b.n ? 1 : 0) || a.i - b.i;   // Python 과 같은 비교
+  }).map(x => x.n);
+}
+
+/* 검토 기간: 'YYYY-MM-DD' 문자열, 비어 있으면 제한 없음 (두 날짜 모두 포함) */
+const period = { from: "", to: "" };
+const periodOn = () => !!(period.from || period.to);
+const periodBad = () => !!(period.from && period.to && period.from > period.to);
+function inPeriod(r){
+  if (!periodOn()) return true;
+  if (periodBad() || !r.date) return false;   // 기간을 정하면 날짜를 못 읽은 측정 건은 제외
+  const d = fmtDate(r);
+  return (!period.from || d >= period.from) && (!period.to || d <= period.to);
+}
+
 function analyze(){
-  const records = state.records.map((r, i) => Object.assign(r, {i}))
-    .slice().sort((a, b) => dateKey(a) - dateKey(b) || a.i - b.i);
+  state.records.forEach((r, i) => { r.i = i; });
+  const pool = state.records.filter(inPeriod);   // 기간 안의 측정 건만 검토
+  // 1) 파일별 표 (엑셀은 합치지 않음). 파일 순서는 파일 이름의 번호 순서, 파일 안에서는 날짜순
+  //    기간 안에 측정 건이 없는 파일은 시트를 만들지 않음
+  const allOrder = sortFiles(state.fileNames);
+  const order = allOrder.filter(n => pool.some(r => r.file === n));
+  const skipped = allOrder.filter(n => !order.includes(n));
+  const names = sheetNames(order);
+  const byFile = order.map(name => ({
+    name, sheet: names.get(name),
+    renamed: names.get(name) !== name.replace(/\.(xlsx|xlsm)$/i, ""),   // 시트 이름 규칙 때문에 바뀌었는지
+    records: pool.filter(r => r.file === name).sort((a, b) => dateKey(a) - dateKey(b) || a.i - b.i),
+  }));
+  // 표 순서: 파일 순서 → 파일 안 위→아래
+  const pos = new Map(); let k = 0;
+  for (const f of byFile) for (const r of f.records) if (!pos.has(r.sig)) pos.set(r.sig, k++);
+  // 2) worst 비교용: 모든 파일의 측정 건, 같은 측정 건은 한 번만
+  const seen = new Set(), records = [];
+  for (const f of byFile) for (const r of f.records) if (!seen.has(r.sig)){ seen.add(r.sig); records.push(r); }
+  records.sort((a, b) => dateKey(a) - dateKey(b) || pos.get(a.sig) - pos.get(b.sig));
   // Serial 번호가 같은 것끼리 묶어서 worst 선정
   const groups = new Map();
   for (const r of records){
@@ -321,35 +422,64 @@ function analyze(){
     const why = tied.length ? "1g·10g 완전 동률 → 먼저 측정된 데이터"
               : same1g.length ? "1g 동률 → 10g 로 결정"
               : recs.length === 1 ? "측정 1회" : "1g 최대";
-    worst.push({serial, rec: best, tied, count: recs.length, nFiles: new Set(recs.map(r => r.file)).size, why});
+    const files = new Set(pool.filter(r => serialKey(r.serial) === serial).map(r => r.file));
+    worst.push({serial, rec: best, tied, count: recs.length, nFiles: files.size, why});
   }
-  if ($("order").value === "freq")
-    worst.sort((a, b) => freqOf(a.rec.type) - freqOf(b.rec.type) || a.serial.localeCompare(b.serial));
-  else
-    worst.sort((a, b) => records.indexOf(a.rec) - records.indexOf(b.rec));
+  // 정리 후 번호가 하나도 없는 파일(시트) → 그 파일 전체(Serial 무관)에서 worst 하나를 골라 번호 추가
+  const marked = new Set(worst.map(w => w.rec.sig));
+  for (const f of byFile){
+    if (f.records.some(r => marked.has(r.sig))) continue;
+    let best = f.records[0];                               // 파일 안은 날짜순 → 완전 동률이면 먼저 측정된 것
+    for (const r of f.records) if (cmp(r, best) < 0) best = r;
+    const tied = f.records.filter(r => r !== best && r.sig !== best.sig && cmp(r, best) === 0);
+    const same1g = f.records.filter(r => r !== best && r.sig !== best.sig && r2(r.d1) === r2(best.d1));
+    const why = "번호 없는 파일 → 파일 전체 worst"
+      + (tied.length ? " (1g·10g 완전 동률 → 먼저 측정된 데이터)" : same1g.length ? " (1g 동률 → 10g 로 결정)" : "");
+    worst.push({serial: serialKey(best.serial), rec: best, tied, count: f.records.length, nFiles: 1, why, fileWorst: true});
+    marked.add(best.sig);
+  }
+  // 넘버링 순서 고정: 파일 번호 순서 → 각 시트 안 위→아래
+  worst.sort((a, b) => pos.get(a.rec.sig) - pos.get(b.rec.sig));
+  // 번호는 측정 건(sig) 기준 → 같은 측정 건이 여러 파일 시트에 있으면 모두 같은 번호
   const no = new Map();
-  worst.forEach((w, k) => { w.no = k + 1; no.set(w.rec, w); });
-  return {records, worst, no};
+  worst.forEach((w, k) => { w.no = k + 1; no.set(w.rec.sig, w); });
+  return {byFile, records, worst, no, skipped, outside: state.records.length - pool.length};
 }
 
 /* ============================================================ 화면 */
 const esc = s => text(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 function render(){
-  $("fileList").innerHTML = state.files.map(f => `<li>${esc(f)}</li>`).join("");
+  // 파일 목록: 넘버링 순서(파일 이름의 번호 순서)로 표시, 데이터가 없던 파일은 뒤에
+  const cnt = name => state.records.filter(r => r.file === name).length;
+  $("fileList").innerHTML = sortFiles(state.fileNames).map((n, i) => `<li>${i + 1}. ${esc(n)} (${cnt(n)}건)</li>`)
+    .concat(state.files.filter(f => / \(0건\)$/.test(f)).map(f => `<li>${esc(f)}</li>`)).join("");
   $("warnings").innerHTML = state.warnings.map(w => `<li>${esc(w)}</li>`).join("");
-  const has = state.records.length > 0;
+  // 검토 기간 안내
+  const ds = state.records.filter(r => r.date).map(fmtDate).sort();
+  $("dataRange").textContent = ds.length ? `불러온 데이터 기간: ${ds[0]} ~ ${ds[ds.length - 1]} · 비워 두면 전체 기간을 검토해요.`
+                                        : "비워 두면 전체 기간을 검토해요.";
+  $("periodErr").textContent = periodBad() ? "시작일이 종료일보다 늦어요. 기간을 다시 골라 주세요." : "";
+
+  const loaded = state.records.length > 0;
+  const {byFile, records, worst, no, skipped, outside} = analyze();
+  const has = records.length > 0;
   $("results").classList.toggle("hidden", !has);
   $("emptyMsg").classList.toggle("hidden", has);
+  $("emptyMsg").textContent = !loaded ? "아직 불러온 데이터가 없어요."
+    : periodBad() ? "시작일이 종료일보다 늦어요. 검토 기간을 다시 골라 주세요."
+    : "선택한 검토 기간에 해당하는 측정 건이 없어요.";
   $("download").disabled = !has;
-  $("clear").disabled = !has && !state.files.length && !state.warnings.length;
+  $("clear").disabled = !loaded && !state.files.length && !state.warnings.length;
   if (!has) return;
 
-  const {records, worst, no} = analyze();
   $("stats").innerHTML = [
-    [state.files.length, "합쳐서 비교한 파일"], [records.length, "측정 건수"], [worst.length, "Serial 수"],
-    [worst.filter(w => w.why.startsWith("1g 동률")).length, "10g 로 결정된 Serial"],
-  ].map(([n, l]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
+    [byFile.length, "비교한 파일 (파일별 시트)"], [records.length, periodOn() ? "기간 내 측정 건수 (중복 제외)" : "측정 건수 (중복 제외)"],
+    [worst.filter(w => !w.fileWorst).length, "Serial 수"], [worst.filter(w => w.why.startsWith("1g 동률")).length, "10g 로 결정된 Serial"],
+    ...(worst.some(w => w.fileWorst) ? [[worst.filter(w => w.fileWorst).length, "번호 없던 파일에 추가한 번호"]] : []),
+    ...(periodOn() ? [[outside, "기간 밖이라 빠진 측정 건"]] : []),
+  ].map(([n, l]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("")
+  + (skipped.length ? `<p class="tabinfo" style="flex-basis:100%;margin:2px 0 0">기간 안에 측정 건이 없어 시트를 만들지 않는 파일: ${skipped.map(esc).join(", ")}</p>` : "");
 
   $("summary").innerHTML =
     `<tr><th>Plot No.</th><th>Serial #</th><th>Type</th><th>Date Tested</th><th>1g Delta (%)</th><th>10g Delta (%)</th><th>측정 횟수</th><th>비교 파일 수</th><th>선정 근거</th><th>원본</th></tr>` +
@@ -357,12 +487,21 @@ function render(){
       <td>${fx(w.rec.d1, 2)}</td><td>${fx(w.rec.d10, 2)}</td><td>${w.count}</td><td>${w.nFiles}</td><td class="left">${esc(w.why)}</td>
       <td class="left">${esc(w.rec.source)} (${w.rec.row}행)</td></tr>`).join("");
 
+  // 파일별 탭
+  if (state.tab >= byFile.length) state.tab = 0;
+  $("tabs").innerHTML = byFile.map((f, i) =>
+    `<button type="button" role="tab" data-i="${i}" aria-selected="${i === state.tab}">${esc(f.sheet)} (${f.records.length})</button>`).join("");
+  const cur = byFile[state.tab];
+  const nWorst = cur.records.filter(r => no.has(r.sig)).length;
+  $("tabinfo").textContent = `원본: ${cur.name} · 측정 ${cur.records.length}건 · 이 시트의 worst 번호 ${nWorst}개`
+    + (cur.renamed ? ` · 시트 이름은 엑셀 규칙(31자·금지 문자·중복) 때문에 '${cur.sheet}'로 저장되고, 시트 맨 위에 원본 파일 이름이 적혀요` : "");
+
   $("main").innerHTML =
     `<tr><th rowspan="2">Date Tested</th><th colspan="2">System Dipole</th><th rowspan="2" colspan="2">T.S.<br>Liquid</th>
      <th colspan="2">Measured Results</th><th rowspan="2">Target<br>(Ref. Value)</th><th rowspan="2">Delta<br>±10 %</th><th rowspan="2">Plot No.</th></tr>
      <tr><th>Type</th><th>Serial #</th><th>Zoom Scan to<br>100 mW</th><th>Normalize<br>to 1 W</th></tr>` +
-    records.map(r => {
-      const w = no.get(r), n = r.rows.length;
+    cur.records.map(r => {
+      const w = no.get(r.sig), n = r.rows.length;
       const g = x => `<td>${esc(x.lab)}</td><td>${fx(x.zoom, 2)}</td><td>${fx(x.norm, 1)}</td><td>${fx(x.target, 2)}</td><td>${fx(x.delta, 2)}</td>`;
       return r.rows.map((x, i) => i === 0
         ? `<tr><td rowspan="${n}">${esc(fmtDate(r))}</td><td rowspan="${n}">${esc(r.type)}</td><td rowspan="${n}">${esc(r.serial)}</td>
@@ -391,21 +530,31 @@ function box(ws, rng, value, opt = {}){
   ws.getCell(a).value = (value == null || value === "") ? null : value;
 }
 
-async function download(){
-  const {records, worst, no} = analyze();
-  const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet("System Check", {views: [{state: "frozen", ySplit: 2}]});
-  [["A1:A2","Date Tested"],["B1:C1","System Dipole"],["B2","Type"],["C2","Serial #"],["D1:E2","T.S.\nLiquid"],
-   ["F1:G1","Measured Results"],["F2","Zoom Scan to\n100 mW"],["G2","Normalize\nto 1 W"],
-   ["H1:H2","Target\n(Ref. Value)"],["I1:I2","Delta\n±10 %"],["J1:J2","Plot No."]]
+const round2 = x => x == null ? null : Math.round(x * 100) / 100;
+
+// 파일 하나 = 시트 하나 (사진 양식)
+function writeFileSheet(wb, f, no){
+  // 시트 이름이 파일 이름(확장자 제외)과 달라졌으면(31자 제한·금지 문자·중복) 표 위에 원본 파일 이름 한 줄
+  const o = f.renamed ? 1 : 0;
+  const ws = wb.addWorksheet(f.sheet, {views: [{state: "frozen", ySplit: 2 + o}]});
+  if (o){
+    ws.mergeCells("A1:J1");
+    const c = ws.getCell("A1");
+    c.value = `원본 파일: ${f.name}`;
+    c.font = BOLD; c.alignment = {horizontal: "left", vertical: "middle"};
+    ws.getRow(1).height = 20;
+  }
+  const h1 = 1 + o, h2 = 2 + o;
+  [[`A${h1}:A${h2}`,"Date Tested"],[`B${h1}:C${h1}`,"System Dipole"],[`B${h2}`,"Type"],[`C${h2}`,"Serial #"],[`D${h1}:E${h2}`,"T.S.\nLiquid"],
+   [`F${h1}:G${h1}`,"Measured Results"],[`F${h2}`,"Zoom Scan to\n100 mW"],[`G${h2}`,"Normalize\nto 1 W"],
+   [`H${h1}:H${h2}`,"Target\n(Ref. Value)"],[`I${h1}:I${h2}`,"Delta\n±10 %"],[`J${h1}:J${h2}`,"Plot No."]]
     .forEach(([r, v]) => box(ws, r, v, {fill: HEAD_FILL}));
-  ws.getRow(1).height = 20; ws.getRow(2).height = 30;
+  ws.getRow(h1).height = 20; ws.getRow(h2).height = 30;
   [16,13,11,9,7,12,12,12,10,12].forEach((w, i) => ws.getColumn(i + 1).width = w);
 
-  const round2 = x => x == null ? null : Math.round(x * 100) / 100;
-  let r = 3;
-  for (const rec of records){
-    const w = no.get(rec), n = rec.rows.length;
+  let r = h2 + 1;
+  for (const rec of f.records){
+    const w = no.get(rec.sig), n = rec.rows.length;
     const span = col => n > 1 ? `${col}${r}:${col}${r + n - 1}` : `${col}${r}`;
     box(ws, span("A"), fmtDate(rec));
     box(ws, span("B"), rec.type);
@@ -424,6 +573,12 @@ async function download(){
       ws.getCell(`J${r}`).note = `1g·10g Delta 완전 동률: ${w.tied.map(fmtDate).join(", ")} 데이터와 같음 (먼저 측정된 데이터 선택)`;
     r += n;
   }
+}
+
+async function download(){
+  const {byFile, worst, no} = analyze();
+  const wb = new ExcelJS.Workbook();
+  for (const f of byFile) writeFileSheet(wb, f, no);
 
   const ss = wb.addWorksheet("Worst Summary", {views: [{state: "frozen", ySplit: 1}]});
   ["Plot No.","Serial #","Type","Date Tested","1g Delta (%)","10g Delta (%)","측정 횟수","비교 파일 수","선정 근거","원본"]
@@ -435,12 +590,39 @@ async function download(){
   });
   [9,10,12,13,12,13,10,11,30,40].forEach((w, i) => ss.getColumn(i + 1).width = w);
 
+  // 시트 이름 ↔ 원본 파일 이름 대응표: Worst 표 아래 한 줄 띄우고, 넓은 I~L 열에
+  const t0 = worst.length + 3, c0 = 9;
+  ["시트 이름", "원본 파일 이름", "측정 건수", "비고"]
+    .forEach((h, i) => box(ss, ss.getCell(t0, c0 + i).address, h, {fill: HEAD_FILL, font: BOLD}));
+  byFile.forEach((f, k) => {
+    [f.sheet, f.name, f.records.length, f.renamed ? "시트 이름 규칙(31자·금지 문자·중복) 때문에 바뀜" : ""]
+      .forEach((v, i) => box(ss, ss.getCell(t0 + 1 + k, c0 + i).address, v));
+  });
+  ss.getColumn(11).width = 10; ss.getColumn(12).width = 40;
+
   const buf = await wb.xlsx.writeBuffer();
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([buf], {type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
-  a.download = "SystemCheck_Worst.xlsx";
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  const name = periodOn() ? `SystemCheck_Worst_${period.from || "처음"}~${period.to || "끝"}.xlsx` : "SystemCheck_Worst.xlsx";
+  const blob = new Blob([buf], {type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  if (window.navigator.msSaveOrOpenBlob){ window.navigator.msSaveOrOpenBlob(blob, name); }
+  else {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.style.display = "none";
+    document.body.appendChild(a);   // 일부 브라우저는 문서에 붙은 링크만 다운로드함
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 10000);
+  }
+  const sheets = byFile.map(f => f.sheet).concat("Worst Summary");
+  $("savedMsg").textContent = `저장: ${name} · 시트 ${sheets.length}개 (${sheets.join(", ")})`;
+}
+
+async function runDownload(btn){
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "만드는 중…";
+  try { await download(); }
+  catch (e){ alert("저장 실패: " + e.message); }
+  finally { btn.disabled = false; btn.textContent = label; }
 }
 
 /* ============================================================ 이벤트 */
@@ -450,10 +632,20 @@ pick.addEventListener("change", () => { addFiles([...pick.files]); pick.value = 
 drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
 drop.addEventListener("dragleave", () => drop.classList.remove("over"));
 drop.addEventListener("drop", e => { e.preventDefault(); drop.classList.remove("over"); addFiles([...e.dataTransfer.files]); });
-$("order").addEventListener("change", render);
-$("download").addEventListener("click", () => download().catch(e => alert("저장 실패: " + e.message)));
+$("from").addEventListener("change", e => { period.from = e.target.value; $("savedMsg").textContent = ""; render(); });
+$("to").addEventListener("change", e => { period.to = e.target.value; $("savedMsg").textContent = ""; render(); });
+$("periodReset").addEventListener("click", () => {
+  period.from = period.to = ""; $("from").value = $("to").value = ""; $("savedMsg").textContent = ""; render();
+});
+$("tabs").addEventListener("click", e => {
+  const i = e.target.dataset && e.target.dataset.i;
+  if (i != null){ state.tab = +i; render(); }
+});
+$("download").addEventListener("click", e => runDownload(e.currentTarget));
+$("download2").addEventListener("click", e => runDownload(e.currentTarget));
 $("clear").addEventListener("click", () => {
-  Object.assign(state, {records: [], files: [], warnings: [], seen: new Set()});
+  Object.assign(state, {records: [], files: [], fileNames: [], warnings: [], seen: new Set(), tab: 0});
+  $("savedMsg").textContent = "";
   render();
 });
 if (!window.ExcelJS){
