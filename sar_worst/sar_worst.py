@@ -398,12 +398,19 @@ def collect_files(paths):
 
 # ================================================================ worst 선정
 
+def sheet_base(n):
+    """시트 이름의 기본: 파일 이름에 'SAR숫자'가 있으면 그 부분만
+    (예: 'Liquid and System Check Table SAR11.xlsx' → 'SAR11'), 없으면 파일 이름(확장자 제외) 그대로"""
+    s = re.sub(r"\.(xlsx|xlsm)$", "", n, flags=re.I)
+    m = re.search(r"SAR\s*-?\s*\d+", s, flags=re.I)
+    return m.group(0) if m else s
+
+
 def sheet_names(names):
     """엑셀 시트 이름 규칙: 31자 이하, [ ] : * ? / 역슬래시 사용 불가, 중복 불가"""
     used, out = {"worst summary"}, {}
     for n in names:
-        base = re.sub(r"\.(xlsx|xlsm)$", "", n, flags=re.I)
-        base = re.sub(r"[\[\]:*?/\\]", "_", base).strip("'").strip() or "Sheet"
+        base = re.sub(r"[\[\]:*?/\\]", "_", sheet_base(n)).strip("'").strip() or "Sheet"
         base = base[:31]
         name, k = base, 2
         while name.lower() in used:
@@ -438,8 +445,8 @@ def analyze(all_records, file_names):
     idx = {id(b): i for i, b in enumerate(all_records)}
     # 1) 파일별 표 (엑셀은 합치지 않음). 파일 안에서는 날짜순
     by_file = [{"name": n, "sheet": names[n],
-                # 시트 이름 규칙(31자·금지 문자·중복) 때문에 파일 이름(확장자 제외)과 달라졌는지
-                "renamed": names[n] != re.sub(r"\.(xlsx|xlsm)$", "", n, flags=re.I),
+                # 시트 이름 규칙(31자·금지 문자·중복) 때문에 기본 이름(sheet_base)과 달라졌는지
+                "renamed": names[n] != sheet_base(n),
                 "records": sorted((b for b in all_records if b["file"] == n), key=lambda b: (date_key(b), idx[id(b)]))}
                for n in file_names]
     # 표 순서: 파일 순서 → 파일 안 위→아래

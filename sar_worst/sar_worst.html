@@ -445,11 +445,18 @@ async function addFiles(fileList){
 }
 
 /* ============================================================ worst 선정 */
+// 시트 이름의 기본: 파일 이름에 'SAR숫자'가 있으면 그 부분만 (예: 'Liquid and System Check Table SAR11.xlsx' → 'SAR11'),
+// 없으면 파일 이름(확장자 제외) 그대로
+function sheetBase(n){
+  const s = n.replace(/\.(xlsx|xlsm)$/i, "");
+  const m = s.match(/SAR\s*-?\s*\d+/i);
+  return m ? m[0] : s;
+}
 // 엑셀 시트 이름 규칙: 31자 이하, [ ] : * ? / \ 사용 불가, 중복 불가
 function sheetNames(names){
   const used = new Set(["worst summary"]), out = new Map();
   for (const n of names){
-    let base = n.replace(/\.(xlsx|xlsm)$/i, "").replace(/[\[\]:*?\/\\]/g, "_").replace(/^'+|'+$/g, "").trim() || "Sheet";
+    let base = sheetBase(n).replace(/[\[\]:*?\/\\]/g, "_").replace(/^'+|'+$/g, "").trim() || "Sheet";
     base = base.slice(0, 31);
     let name = base, k = 2;
     while (used.has(name.toLowerCase())){ const suf = ` (${k++})`; name = base.slice(0, 31 - suf.length) + suf; }
@@ -513,7 +520,7 @@ function analyze(){
   const names = sheetNames(order);
   const byFile = order.map(name => ({
     name, sheet: names.get(name),
-    renamed: names.get(name) !== name.replace(/\.(xlsx|xlsm)$/i, ""),   // 시트 이름 규칙 때문에 바뀌었는지
+    renamed: names.get(name) !== sheetBase(name),   // 시트 이름 규칙(31자·금지 문자·중복) 때문에 바뀌었는지
     records: pool.filter(r => r.file === name).sort((a, b) => dateKey(a) - dateKey(b) || a.i - b.i),
   }));
   // 표 순서: 파일 순서 → 파일 안 위→아래
